@@ -19,7 +19,6 @@ RUN apt-get update && \
   curl \
   libmariadb-dev \
   libmariadb-dev-compat \
-  libmariadbclient-dev \
   nano \
   nodejs
 
