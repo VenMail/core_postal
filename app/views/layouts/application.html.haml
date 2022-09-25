@@ -21,8 +21,8 @@
             = link_to "Close", '#', :class => 'button button--dark button--small', :data => {:remember => 'no'}
 
       .siteHeader__inside
-        .siteHeader__logo= link_to "Postal", root_path
-        %p.siteHeader__version The open source e-mail platform
+        .siteHeader__logo= link_to "VenMail", root_path
+        %p.siteHeader__version Beta 1.0
         %ul.siteHeader__nav
           - if defined?(organization) && organization
             %li.siteHeader__navItem
@@ -55,7 +55,6 @@
         %footer.siteContent__footer
           %ul.footer__links
             %li.footer__name
-              Powered by #{link_to "Postal", "https://postalserver.io", target: '_blank'} #{Postal.version}.
-            %li= link_to "Documentation", "https://docs.postalserver.io", target: '_blank'
-            %li= link_to "Ask for help", "https://discussions.postalserver.io", target: '_blank'
+              Copyright #{link_to "VenMail", "https://venmail.io", target: '_blank'}.
+            %li= link_to "Mial", "https://mail.venia.cloud", target: '_blank'
 
