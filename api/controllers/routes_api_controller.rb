@@ -12,12 +12,12 @@ controller :routes do
     title "Add a route"
     description "Create an email route"
     # Acceptable Parameters
-    param :name, String, desc: "The e-mail address of the recipient (max 255)", required: true
-    param :domain_id, Integer, desc: "The id of the domain", required: true
-    param :endpoint_id, Integer, desc: "The id of the endpoint", required: true
-    param :endpoint_type, String, desc: "The type of the endpoint"
-    param :mode, String, desc: "The mode of the route"
-    param :spam_mode, String, desc: "The spam mode of the route"
+    param :name, required: true, type: String, desc: "The e-mail address of the recipient (max 255)"
+    param :domain_id, required: true, type: Integer, desc: "The id of the domain"
+    param :endpoint_id, required: true, type: Integer, desc: "The id of the endpoint"
+    param :endpoint_type, type: String, desc: "The type of the endpoint"
+    param :mode, type: String, desc: "The mode of the route"
+    param :spam_mode, type: String, desc: "The spam mode of the route"
     # Errors
     error 'ValidationError', "The provided data was not sufficient to create a route", attributes: { errors: "A hash of error details" }
     # Return
