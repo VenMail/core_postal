@@ -12,14 +12,12 @@ controller :routes do
     title "Add a route"
     description "Create an email route"
     # Acceptable Parameters
-    param :route, required: true do
-      param :name, type: String, desc: "The e-mail address of the recipient (max 255)"
-      param :domain_id, type: Integer, desc: "The id of the domain"
-      param :endpoint_id, type: Integer, desc: "The id of the endpoint"
-      param :endpoint_type, type: String, desc: "The type of the endpoint"
-      param :mode, type: String, desc: "The mode of the route"
-      param :spam_mode, type: String, desc: "The spam mode of the route"
-    end
+    param :name, "The e-mail address of the recipient (max 255)", :type => String 
+    param :domain_id, "The id of the domain", :type => Integer
+    param :endpoint_id, "The id of the endpoint", :type => Integer
+    param :endpoint_type, "The type of the endpoint", :type => String
+    param :mode, "The mode of the route", :type => String
+    param :spam_mode, "The spam mode of the route", :type => String
     # Errors
     error 'RecordInvalid', "The provided data was not sufficient to create a route", attributes: { errors: "A hash of error details" }
     # Return
@@ -28,11 +26,18 @@ controller :routes do
     action do
       result = {}  # Initialize the result variable
       # Validate input data
-      unless route_params[:name].present? && route_params[:domain_id].present? && route_params[:endpoint_id].present?
+      unless params.name? && params.domain_id? && params.endpoint_id?
         error! "Missing required parameters: name, domain_id, or endpoint_id", 400
       end
       # Use the nested `params[:route]` to get the permitted parameters
-      if @route.create(params[:route])
+      if @route.create(
+        name: params.name,
+        domain_id: params.domain_id,
+        endpoint_id: params.endpoint_id,
+        endpoint_type: params.endpoint_type,
+        mode: params.mode,
+        spam_mode: params.spam_mode
+      )
         result[:data] = { id: @route.id, name: @route.name }
       else
         error! "Failed to create the route", 500
