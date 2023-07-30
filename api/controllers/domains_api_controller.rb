@@ -14,7 +14,7 @@ controller :domains do
     action do
       begin
         # Find all domains that belong to the current server identity
-        domains = Domain.where(server_id: identity.server.id)
+        domains = Domain.where(owner_id: identity.server.id, owner_type: "Server")
         # Return an array of hashes with the domain attributes
         result = domains.map do |domain|
           {

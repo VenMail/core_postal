@@ -19,7 +19,7 @@ controller :routes do
     param :mode, type: String, desc: "The mode of the route"
     param :spam_mode, type: String, desc: "The spam mode of the route"
     # Errors
-    error 'ValidationError', "The provided data was not sufficient to create a route", attributes: { errors: "A hash of error details" }
+    error 'RecordInvalid', "The provided data was not sufficient to create a route", attributes: { errors: "A hash of error details" }
     # Return
     returns Hash
     # Action
@@ -29,11 +29,11 @@ controller :routes do
       if @route.persisted?
         result[:data] = { id: @route.id, name: @route.name }
       else
-        raise ValidationError.new(@route.errors)
+        raise ActiveRecord::RecordInvalid.new(@route)
       end
       result  # Return the result
-    rescue ValidationError => e
-      error "ValidationError", e.message, errors: e.errors
+    rescue ActiveRecord::RecordInvalid => e
+      error "RecordInvalid", e.message, errors: e.record.errors
     end
   end
 
@@ -49,11 +49,10 @@ controller :routes do
     returns Array
     # Action
     action do
-      result = {}  # Initialize the result variable
       # Find all routes that belong to the current server identity
       routes = Route.where(server_id: identity.server.id)
       # Return an array of hashes with the route attributes
-      result[:data] = routes.map do |route|
+      result = routes.map do |route|
         {
           id: route.id,
           name: route.name,
