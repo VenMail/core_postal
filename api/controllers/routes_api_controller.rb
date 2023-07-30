@@ -24,12 +24,14 @@ controller :routes do
     returns Hash
     # Action
     action do
+      result = {}  # Initialize the result variable
       @route.create(route_params)
       if @route.persisted?
         result[:data] = { id: @route.id, name: @route.name }
       else
         raise ValidationError.new(@route.errors)
       end
+      result  # Return the result
     rescue ValidationError => e
       error "ValidationError", e.message, errors: e.errors
     end
@@ -47,6 +49,7 @@ controller :routes do
     returns Array
     # Action
     action do
+      result = {}  # Initialize the result variable
       # Find all routes that belong to the current server identity
       routes = Route.where(server_id: identity.server.id)
       # Return an array of hashes with the route attributes
@@ -61,6 +64,7 @@ controller :routes do
           spam_mode: route.spam_mode
         }
       end
+      result  # Return the result
     end
   end
 end
