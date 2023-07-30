@@ -24,7 +24,6 @@ controller :routes do
     returns Hash
     # Action
     action do
-      puts "Received params: #{params.inspect}"
       result = {}  # Initialize the result variable
       # Validate input data
       unless params.name && params.domain_id && params.endpoint_id
@@ -33,8 +32,14 @@ controller :routes do
         error_message += "\nReceived JSON body: #{request_body}"
         error error_message, 400
       end
-      new_route = Route.create(
+
+      domain = Domain.find_by(id: params.domain_id)
+      unless domain
+        error! "Domain with ID #{domain_id} not found", 404
+      end
+        new_route = Route.create(
         name: params.name,
+        server_id: identity.server.id,
         domain_id: params.domain_id,
         endpoint_id: params.endpoint_id,
         endpoint_type: params.endpoint_type,
