@@ -27,7 +27,7 @@ controller :routes do
       result = {}  # Initialize the result variable
       # Validate input data
       unless params.name? && params.domain_id? && params.endpoint_id?
-        error! "Missing required parameters: name, domain_id, or endpoint_id", 400
+        error "Missing required parameters: name, domain_id, or endpoint_id", 400
       end
       # Use the nested `params[:route]` to get the permitted parameters
       if @route.create(
@@ -40,12 +40,10 @@ controller :routes do
       )
         result[:data] = { id: @route.id, name: @route.name }
       else
-        error! "Failed to create the route", 500
+        error "Failed to create the route", 500
       end
 
       result  # Return the result
-    rescue ActiveRecord::RecordInvalid => e
-      error! "RecordInvalid: #{e.message}", 400, errors: e.record.errors
     end
   end
 
