@@ -24,6 +24,10 @@ controller :routes do
     returns Hash
     # Action
     action do
+      def route_params
+        params.permit(:name, :domain_id, :endpoint_id, :endpoint_type, :mode, :spam_mode)
+      end
+    
       result = {}  # Initialize the result variable
       @route.create(route_params)
       if @route.persisted?
@@ -35,10 +39,6 @@ controller :routes do
     rescue ActiveRecord::RecordInvalid => e
       error "RecordInvalid", e.message, errors: e.record.errors
     end
-  end
-
-  def route_params
-    params.permit(:name, :domain_id, :endpoint_id, :endpoint_type, :mode, :spam_mode)
   end
 
   action :list do

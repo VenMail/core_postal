@@ -20,10 +20,7 @@ controller :domains do
           {
             id: domain.id,
             name: domain.name,
-            verification_token: domain.verification_token,
-            verification_method: domain.verification_method,
             verified_at: domain.verified_at,
-            dkim_private_key: domain.dkim_private_key,
             created_at: domain.created_at,
             updated_at: domain.updated_at,
             dns_checked_at: domain.dns_checked_at,
