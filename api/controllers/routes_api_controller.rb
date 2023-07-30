@@ -24,12 +24,15 @@ controller :routes do
     returns Hash
     # Action
     action do
+      puts "Received params: #{params.inspect}"
       result = {}  # Initialize the result variable
       # Validate input data
-      unless params.name? && params.domain_id? && params.endpoint_id?
-        error "Missing required parameters: name, domain_id, or endpoint_id", 400
+      unless params.name && params.domain_id && params.endpoint_id
+        request_body = request.body.read
+        error_message = "Missing required parameters: name, domain_id, or endpoint_id"
+        error_message += "\nReceived JSON body: #{request_body}"
+        error error_message, 400
       end
-      # Use the nested `params[:route]` to get the permitted parameters
       if @route.create(
         name: params.name,
         domain_id: params.domain_id,
