@@ -33,7 +33,7 @@ controller :routes do
         error_message += "\nReceived JSON body: #{request_body}"
         error error_message, 400
       end
-      if @route.create(
+      new_route = Route.create(
         name: params.name,
         domain_id: params.domain_id,
         endpoint_id: params.endpoint_id,
@@ -41,7 +41,8 @@ controller :routes do
         mode: params.mode,
         spam_mode: params.spam_mode
       )
-        result[:data] = { id: @route.id, name: @route.name }
+      if new_route.persisted?
+        result[:data] = { id: new_route.id, name: new_route.name }
       else
         error "Failed to create the route", 500
       end
