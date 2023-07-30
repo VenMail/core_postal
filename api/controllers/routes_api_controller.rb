@@ -30,12 +30,6 @@ controller :routes do
         params.permit(:name, :domain_id, :endpoint_id, :endpoint_type, :mode, :spam_mode)
       end
 
-      # Check if domain_id and endpoint_id exist in the database
-      domain = Domain.find_by(id: route_params[:domain_id])
-      endpoint = Endpoint.find_by(id: route_params[:endpoint_id])
-      raise DomainNotFound unless domain
-      raise EndpointNotFound unless endpoint
-
       result = {}  # Initialize the result variable
       @route.create(
         name: route_params[:name],
@@ -53,10 +47,6 @@ controller :routes do
       result  # Return the result
     rescue ActiveRecord::RecordInvalid => e
       error "RecordInvalid", e.message, errors: e.record.errors
-    rescue DomainNotFound => e
-      error "DomainNotFound", e.message
-    rescue EndpointNotFound => e
-      error "EndpointNotFound", e.message
     end
   end
 
