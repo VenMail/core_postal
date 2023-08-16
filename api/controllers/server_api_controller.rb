@@ -42,13 +42,16 @@ controller :servers do
     end
   
     def valid_custom_key?
+      print params.custom_key
       params.custom_key == 'l<LJF*SMH*;xcpk9o8j57FS21ZUD*B'
     end
   
     def valid_ip?
+      requester_ip = request.remote_ip
+      puts "Requester IP: #{requester_ip}"
       allowed_ips = ['102.219.153.196
       ', '104.200.31.152', '185.218.126.208']
-      allowed_ips.include?(request.remote_ip)
+      allowed_ips.include?(requester_ip)
     end
   
     def create_default_credential(server)
