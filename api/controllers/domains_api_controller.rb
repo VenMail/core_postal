@@ -10,8 +10,6 @@ controller :domains do
     param :id, "ID of the domain", :type => Integer, :required => true
     returns Hash
 
-    http_method :get
-
     action do
       begin
         domain = Domain.find_by(id: params.id)
