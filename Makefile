@@ -56,7 +56,7 @@ endif
 # ==============================================================================
 
 DOCKER_BUILD_CMD = DOCKER_BUILDKIT=1 docker \
-	build $(if $(TTY),,--progress plain) \
+	build $(if $(TTY),,) \
 	--build-arg VERSION=$(VERSION) \
 	.
 
