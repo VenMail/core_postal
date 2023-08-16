@@ -7,8 +7,10 @@ controller :domains do
     title "Get domain details"
     description "Retrieve details of a single domain based on its ID"
     
-    param :id, "ID of the domain", type: Integer
+    param :id, "ID of the domain", :type => Integer, :required => true
     returns Hash
+
+    http_method :get
 
     action do
       begin
@@ -17,36 +19,10 @@ controller :domains do
         unless domain
           error("Domain with ID #{params.id} not found", 404)
         else
-          {
-            id: domain.id,
-            name: domain.name,
-            verified_at: domain.verified_at,
-            created_at: domain.created_at,
-            updated_at: domain.updated_at,
-            dns_checked_at: domain.dns_checked_at,
-            spf_status: domain.spf_status,
-            spf_error: domain.spf_error,
-            dkim_status: domain.dkim_status,
-            dkim_error: domain.dkim_error,
-            mx_status: domain.mx_status,
-            mx_error: domain.mx_error,
-            return_path_status: domain.return_path_status,
-            return_path_error: domain.return_path_error,
-            outgoing: domain.outgoing,
-            incoming: domain.incoming,
-            owner_type: domain.owner_type,
-            owner_id: domain.owner_id,
-            dkim_identifier_string: domain.dkim_identifier_string,
-            use_for_any: domain.use_for_any,
-            dkim_record: domain.dkim_record,
-            dkim_identifier: domain.dkim_identifier,
-            spf_record: domain.spf_record,
-            verification: {
-              token: domain.verification_token,
-              method: domain.verification_method
-            }
-          }
+          domain.as_json
         end
+      rescue Moonrope::Errors::StructuredError => e
+        error(e.message, e.status)
       rescue StandardError => e
         {
           error: "An error occurred while retrieving the domain: #{e.message}"
@@ -55,11 +31,11 @@ controller :domains do
     end
   end
 
-  action :add_domain do
+  action :domain do
     title "Add a domain"
     description "Add a new domain based on the given name parameter"
     
-    param :name, "Name of the domain", type: String
+    param :name, "Name of the domain", :type => String
     error 'RecordInvalid', "The provided data was not sufficient to create a domain", attributes: { errors: "A hash of error details" }
     returns Hash
     
@@ -90,6 +66,8 @@ controller :domains do
         else
           error("Failed to create the domain", 500)
         end
+      rescue Moonrope::Errors::StructuredError => e
+        error(e.message, e.status)
       rescue StandardError => e
         {
           error: "An error occurred while adding the domain: #{e.message}"

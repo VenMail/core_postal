@@ -9,10 +9,10 @@ controller :servers do
       title "Create a new server"
       description "Create a new server under the organization"
   
-      param :name, "Name of the server", type: String
-      param :mode, "Mode of the server", type: String
-      param :organization_id, "Organization ID", type: Integer
-      param :custom_key, "Key", type: String
+      param :name, "Name of the server", :type => String
+      param :mode, "Mode of the server", :type => String
+      param :organization_id, "Organization ID", :type => Integer
+      param :custom_key, "Key", :type => String
       returns Hash
   
       action do
