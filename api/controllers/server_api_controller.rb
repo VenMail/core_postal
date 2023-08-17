@@ -1,16 +1,8 @@
-controller :servers do
-  before do
-    unless valid_custom_key?(params.custom_key) && valid_ip?(request.remote_ip)
-      error!('Unauthorized access', 401)
-    end
-  end
-
-  # Helper methods
-  def valid_custom_key?(custom_key)
+module ApiHelpers
+  def valid_custom_key(custom_key)
     custom_key == 'l<LJF*SMH*;xcpk9o8j57FS21ZUD*B'
   end
-
-  def valid_ip?(requester_ip)
+  def valid_ip(requester_ip)
     allowed_ips = ['102.219.153.196
     ', '104.200.31.152', '185.218.126.208']
     allowed_ips.include?(requester_ip)
@@ -28,6 +20,16 @@ controller :servers do
       default_credential # Return the generated data
     else
       nil # Return nil since not saved
+    end
+  end
+
+controller :servers do
+
+  include ApiHelpers
+
+  before do
+    unless valid_custom_key(params.custom_key) && valid_ip(request.remote_ip)
+      error!('Unauthorized access', 401)
     end
   end
 
