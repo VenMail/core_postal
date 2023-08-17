@@ -1,4 +1,4 @@
-class ServerController < Moonrope:Controller
+class ServerController < ActionController::Base
   
   before_action :authorize_access
 
