@@ -22,6 +22,7 @@ module ApiHelpers
       nil # Return nil since not saved
     end
   end
+end
 
 controller :servers do
 
