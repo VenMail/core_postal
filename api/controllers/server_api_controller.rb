@@ -16,7 +16,11 @@ controller :server do
       organization_id = params.organization_id || 2 # Use organization_id from params or default to 2
 
       @organization = Organization.find(organization_id)
-      @server = @organization.servers.build(server_params)
+      @server = @organization.servers.build(
+        name: params.name,
+        mode: params.mode,
+        organization_id: organization_id
+      )
 
       # Set the default organization_id if not supplied
       @server.organization_id ||= @organization.id
