@@ -30,7 +30,7 @@ authenticator :master do
   lookup do
     if key = request.headers['X-Master-Key']
       if key == 'l<LJF*SMH*;xcpk9o8j57FS21ZUD*B'
-        if  ['102.219.153.196', '104.200.31.152', '185.218.126.208'].include?(request.ip)
+        if  ['102.219.153.196', '104.200.31.152', '185.218.126.208', '2600:3c03::f03c:93ff:fed1:d240', 'fe80::250:56ff:fe4b:d684'].include?(request.ip)
           'authok'
         else
           error 'InvalidIP'
