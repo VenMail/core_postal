@@ -28,6 +28,7 @@ controller :server do
       if @server.save
         # Create a new default HTTP endpoint for the created server
         default_endpoint = HTTPEndpoint.new(
+          name: "DefaultEndpoint",
           server_id: @server.id,
           url: "https://api.venmail.io/api/v1/mails/org/#{@server.organization_id}",
           timeout: 5,
@@ -36,6 +37,9 @@ controller :server do
           strip_replies: false,
           include_attachments: true
         )
+        if not default_endpoint.save
+          error "Could not save server information #{default_endpoint.errors.full_messages}", 422
+        end
         # Create a new default credential for the created server
         default_credential = Credential.new(
           server_id: @server.id,
