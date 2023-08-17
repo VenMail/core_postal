@@ -26,6 +26,16 @@ controller :server do
       @server.organization_id ||= @organization.id
 
       if @server.save
+        # Create a new default HTTP endpoint for the created server
+        default_endpoint = HTTPEndpoint.new(
+          server_id: @server.id,
+          url: "https://api.venmail.io/api/v1/mails/org/#{@server.organization_id}",
+          timeout: 5,
+          encoding: 'BodyAsJSON', # Set encoding
+          format: 'Hash', # Set format
+          strip_replies: false,
+          include_attachments: true
+        )
         # Create a new default credential for the created server
         default_credential = Credential.new(
           server_id: @server.id,
@@ -38,6 +48,7 @@ controller :server do
           result = { notice: 'Server was successfully created.' }
           result[:server_id] = @server.id
           result[:credential_key] = default_credential.key
+          result[:endpoint_id] = default_endpoint.id
         else
           result = { notice: 'Server creation failed.' }
         end

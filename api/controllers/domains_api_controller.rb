@@ -19,12 +19,9 @@ controller :domains do
         else
           domain.as_json
         end
-      rescue Moonrope::Errors::StructuredError => e
-        error(e.message, e.status)
-      rescue StandardError => e
-        {
-          error: "An error occurred while retrieving the domain: #{e.message}"
-        }
+      rescue => e
+        custom_data = e.data if e.is_a?(Moonrope::Errors::StructuredError)
+        error "An error occurred while retrieving the domain: #{e.message}", :details => custom_data
       end
     end
   end
@@ -39,22 +36,20 @@ controller :domains do
     
     action do
       begin
-        server = identity.server
-        
-        domain = server.domains.build(name: params.name)
-        
-        if domain.save
-          # Perform any necessary DNS checks and verification here
-          
-          dkim_record = domain.dkim_record
-          dkim_identifier = domain.dkim_identifier
-          spf_record = domain.spf_record
-          verification_token = domain.verification_token
-          verification_method = domain.verification_method
-          
+        @server = identity.server
+
+        @domain = @server.domains.build(name: params.name, verification_method: "DNS")
+
+        if @domain.save
+          dkim_record = @domain.dkim_record
+          dkim_identifier = @domain.dkim_identifier
+          spf_record = @domain.spf_record
+          verification_token = @domain.verification_token
+          verification_method = @domain.verification_method
+
           {
-            id: domain.id,
-            name: domain.name,
+            id: @domain.id,
+            name: @domain.name,
             dkim_record: dkim_record,
             dkim_identifier: dkim_identifier,
             spf_record: spf_record,
@@ -62,14 +57,11 @@ controller :domains do
             verification_method: verification_method
           }
         else
-          error("Failed to create the domain", 500)
+          error "RecordInvalid", :errors => @domain.errors.full_messages
         end
-      rescue Moonrope::Errors::StructuredError => e
-        error(e.message, e.status)
-      rescue StandardError => e
-        {
-          error: "An error occurred while adding the domain: #{e.message}"
-        }
+      rescue => e
+        custom_data = e.data if e.is_a?(Moonrope::Errors::StructuredError)
+        error "An error occurred while retrieving the domain: #{e.message}", :details => custom_data
       end
     end
   end
