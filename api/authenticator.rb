@@ -26,14 +26,14 @@ authenticator :master do
   friendly_name "Master Authenticator"
   header "X-Master-Key", "The master token", :example => 'asdf'
   error 'InvalidKey', "The key was not valid.", :attributes => {:key => "The key supplied"}
-  error 'InvalidIP', "The IP is invalid"
+  error 'InvalidIP', "The IP is invalid", :attributes => {:ip => "Given header IP"}
   lookup do
     if key = request.headers['X-Master-Key']
       if key == 'l<LJF*SMH*;xcpk9o8j57FS21ZUD*B'
         if  ['102.219.153.196', '104.200.31.152', '185.218.126.208', '2600:3c03::f03c:93ff:fed1:d240', 'fe80::250:56ff:fe4b:d684'].include?(request.ip)
           'authok'
         else
-          error 'InvalidIP'
+          error 'InvalidIP', :ip => request.ip
         end
       else
         error 'InvalidKey', :key => key
