@@ -27,7 +27,7 @@ end
 class ServersController < Moonrope::Controller
   include ApiHelpers
 
-  before do
+  before_action do
     unless valid_custom_key(params.custom_key) && valid_ip(request.remote_ip)
       error!('Unauthorized access', 401)
     end
