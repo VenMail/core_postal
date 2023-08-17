@@ -35,7 +35,7 @@ controller :routes do
 
       domain = Domain.find_by(id: params.domain_id)
       unless domain
-        error! "Domain with ID #{domain_id} not found", 404
+        error "Domain with ID #{domain_id} not found", 404
       end
         new_route = Route.create(
         name: params.name,

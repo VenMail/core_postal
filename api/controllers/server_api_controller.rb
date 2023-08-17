@@ -40,7 +40,7 @@ controller :server do
     
         result
       else
-        error!("Could not save server information", 422)
+        error "Could not save server information", 422
       end
     end
   end
