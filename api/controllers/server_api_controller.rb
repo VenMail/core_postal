@@ -1,11 +1,5 @@
-class ServersController < ActionController::Base
+class ServerController < Moonrope:Controller
   include ApiHelpers
-
-  before_action do
-    unless valid_custom_key(params.custom_key) && valid_ip(request.remote_ip)
-      error!('Unauthorized access', 401)
-    end
-  end
 
   action :create do
     title "Create a new server"
