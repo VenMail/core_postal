@@ -1,4 +1,5 @@
 module ApiHelpers
+  extend self
   included do
     before_action :authorize_access # Add any necessary authorization logic
   end
