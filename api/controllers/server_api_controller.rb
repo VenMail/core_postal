@@ -24,7 +24,7 @@ module ApiHelpers
   end
 end
 
-class ServersController < Moonrope::Controller
+class ServersController < ActionController::Base
   include ApiHelpers
 
   before_action do
