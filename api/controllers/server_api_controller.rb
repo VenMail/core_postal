@@ -24,8 +24,7 @@ module ApiHelpers
   end
 end
 
-controller :servers do
-
+class ServersController < Moonrope::Controller
   include ApiHelpers
 
   before do
@@ -34,7 +33,6 @@ controller :servers do
     end
   end
 
-  # Define actions here
   action :create do
     title "Create a new server"
     description "Create a new server under the organization"
