@@ -63,5 +63,24 @@ controller :server do
       end
     end
   end
+  
+  action :remove do
+    title "Remove a server by ID"
+    description "Remove a server from the organization by its ID"
 
+    param :server_id, "Server ID to be removed", type: Integer
+    returns Hash
+
+    action do
+      @server = Server.find(params.server_id)
+
+      if @server.destroy
+        result = { notice: 'Server was successfully removed.' }
+      else
+        error "Could not remove the server", 422
+      end
+
+      result
+    end
+  end
 end

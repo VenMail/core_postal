@@ -107,4 +107,39 @@ controller :domains do
       end
     end
   end
+
+  action :verify do
+    title "Verify domain TXT"
+    description "Verify a single domain based on ID"
+    
+    param :id, "ID of the domain", :type => Integer, :required => true
+    returns Hash
+
+    action do
+      begin
+        domain = Domain.find_by(id: params.id)
+
+        unless domain
+          error("Domain with ID #{params.id} not found", 404)
+        else
+          if domain.verified?
+            domain.as_json
+          else
+            if domain.verify_with_dns
+              domain.as_json
+            else
+              {
+                success: false,
+                message: "Invalid verification code. Please check and try again"
+              }
+            end
+          end
+
+        end
+      rescue => e
+        custom_data = e.data if e.is_a?(Moonrope::Errors::StructuredError)
+        error "An error occurred while retrieving the domain: #{e.message}", :details => custom_data
+      end
+    end
+  end
 end
