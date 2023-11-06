@@ -117,7 +117,7 @@ module Postal
           check_ip_address
           @state = :welcome
           log "\e[35m   Client identified as #{@ip_address}\e[0m"
-          "220 #{Postal.config.dns.smtp_server_hostname} ESMTP Postal/#{id}"
+          "220 #{Postal.config.dns.smtp_server_hostname} Venmail Core/#{id}"
         else
           @finished = true
           '502 Proxy Error'

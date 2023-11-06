@@ -107,7 +107,7 @@ module Postal
                   end
                   # We know who the client is, welcome them.
                   client.log "\e[35m   Client identified as #{new_io.remote_address.ip_address}\e[0m"
-                  new_io.print("220 #{Postal.config.dns.smtp_server_hostname} ESMTP Postal/#{client.id}")
+                  new_io.print("220 #{Postal.config.dns.smtp_server_hostname} Venmail Core/#{client.id}")
                 end
                 # Register the client and its socket with nio4r
                 monitor = @io_selector.register(new_io, :r)
