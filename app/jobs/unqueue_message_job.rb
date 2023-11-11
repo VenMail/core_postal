@@ -314,7 +314,7 @@ class UnqueueMessageJob < Postal::Job
               end
 
               # Extract a tag and add it to the message if one doesn't exist
-              if queued_message.message.tag.nil? && tag = queued_message.message.headers['x-postal-tag']
+              if queued_message.message.tag.nil? && tag = queued_message.message.headers['x-venmail-tag']
                 log "#{log_prefix} Added tag #{tag.last}"
                 queued_message.message.update(:tag => tag.last)
               end
