@@ -3,7 +3,7 @@ trap("INT") { puts ; exit }
 
 
 if ARGV[0].nil? || !(ARGV[0] =~ /@/)
-  puts "usage: postal test-app-smtp [email address]"
+  puts "usage: venmail test-app-smtp [email address]"
   exit 1
 end
 

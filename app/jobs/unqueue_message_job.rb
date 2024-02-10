@@ -217,6 +217,8 @@ class UnqueueMessageJob < Postal::Job
                 begin
                   if @fixed_result
                     result = @fixed_result
+                  elsif queued_message.message.endpoint_type == "MAILDIR"
+                    sender = cached_sender(Postal::MaildirSender, queued_message.message.endpoint.domain)
                   else
                     case queued_message.message.endpoint
                     when SMTPEndpoint
@@ -225,7 +227,7 @@ class UnqueueMessageJob < Postal::Job
                       sender = cached_sender(Postal::HTTPSender, queued_message.message.endpoint)
                     when AddressEndpoint
                       sender = cached_sender(Postal::SMTPSender, queued_message.message.endpoint.domain, nil, :force_rcpt_to => queued_message.message.endpoint.address)
-                    when MaildirEndpoint
+                    when "MAILDIR"
                       sender = cached_sender(Postal::MaildirSender, queued_message.message.endpoint.domain)
                     else
                       log "#{log_prefix} Invalid endpoint for route (#{queued_message.message.endpoint_type})"
@@ -316,7 +318,7 @@ class UnqueueMessageJob < Postal::Job
               end
 
               # Extract a tag and add it to the message if one doesn't exist
-              if queued_message.message.tag.nil? && tag = queued_message.message.headers['x-postal-tag']
+              if queued_message.message.tag.nil? && tag = queued_message.message.headers['x-venmail-tag']
                 log "#{log_prefix} Added tag #{tag.last}"
                 queued_message.message.update(:tag => tag.last)
               end

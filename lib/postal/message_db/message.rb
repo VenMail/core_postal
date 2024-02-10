@@ -69,6 +69,8 @@ module Postal
             self.endpoint_type.constantize.find_by_id(self.endpoint_id)
           elsif self.route && self.route.mode == 'Endpoint'
             self.route.endpoint
+          elsif self.endpoint_type == "MAILDIR"
+            self.endpoint_type
           end
         end
       end

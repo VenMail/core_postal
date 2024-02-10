@@ -41,7 +41,7 @@ class ApplicationController < ActionController::Base
   end
 
   def page_title
-    @page_title ||= ["Postal"]
+    @page_title ||= ["Venia"]
   end
   helper_method :page_title
 
