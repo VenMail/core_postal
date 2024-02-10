@@ -225,6 +225,8 @@ class UnqueueMessageJob < Postal::Job
                       sender = cached_sender(Postal::HTTPSender, queued_message.message.endpoint)
                     when AddressEndpoint
                       sender = cached_sender(Postal::SMTPSender, queued_message.message.endpoint.domain, nil, :force_rcpt_to => queued_message.message.endpoint.address)
+                    when MaildirEndpoint
+                      sender = cached_sender(Postal::MaildirSender, queued_message.message.endpoint.domain)
                     else
                       log "#{log_prefix} Invalid endpoint for route (#{queued_message.message.endpoint_type})"
                       queued_message.message.create_delivery('HardFail', :details => "Invalid endpoint for route.")

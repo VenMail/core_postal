@@ -1,20 +1,19 @@
-class ServersController < ActionController::Base
+class ServersController < Moonrope::Controller
+
   include ApiHelpers
 
   before_action do
-    unless valid_custom_key(params.custom_key) && valid_ip(request.remote_ip)
-      error!('Unauthorized access', 401)
-    end
+    error!('Unauthorized access', 401) unless valid_custom_key(params.custom_key) && valid_ip(request.remote_ip)
   end
 
   action :create do
-    title "Create a new server"
-    description "Create a new server under the organization"
+    title 'Create a new server'
+    description 'Create a new server under the organization'
 
-    param :name, "Name of the server", type: String
-    param :mode, "Mode of the server", type: String
-    param :organization_id, "Organization ID", type: Integer
-    param :custom_key, "Key", type: String
+    param :name, 'Name of the server', type: String
+    param :mode, 'Mode of the server', type: String
+    param :organization_id, 'Organization ID', type: Integer
+    param :custom_key, 'Key', type: String
     returns Hash
 
     action do
@@ -37,7 +36,7 @@ class ServersController < ActionController::Base
 
         result
       else
-        error!("Could not save server information", 422)
+        error!('Could not save server information', 422)
       end
     end
   end
