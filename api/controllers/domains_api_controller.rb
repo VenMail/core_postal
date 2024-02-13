@@ -118,11 +118,12 @@ controller :domains do
     action do
       begin
         domain = Domain.find_by(id: params.id)
-
+        
         unless domain
           error("Domain with ID #{params.id} not found", 404)
         else
           if domain.verified?
+            domain.check_dns(:manual)
             domain.as_json
           else
             if domain.verify_with_dns
