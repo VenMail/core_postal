@@ -396,7 +396,7 @@ module Postal
       # Does this message have our DKIM header yet?
       #
       def has_outgoing_headers?
-        !!(raw_headers =~ /^X\-Postal\-MsgID\:/i)
+        !!(raw_headers =~ /^X\-Venmail\-MsgID\:/i)
       end
 
       #
@@ -408,7 +408,7 @@ module Postal
           dkim = Postal::DKIMHeader.new(self.domain, self.raw_message)
           headers << dkim.dkim_header
         end
-        headers << "X-Postal-MsgID: #{self.token}"
+        headers << "X-Venmail-MsgID: #{self.token}"
         append_headers(*headers)
       end
 
@@ -481,7 +481,7 @@ module Postal
       #
       def original_messages
         return nil unless self.bounce == 1
-        other_message_ids = raw_message.scan(/\X\-Postal\-MsgID\:\s*([a-z0-9]+)/i).flatten
+        other_message_ids = raw_message.scan(/\X\-Venmail\-MsgID\:\s*([a-z0-9]+)/i).flatten
         if other_message_ids.empty?
           []
         else

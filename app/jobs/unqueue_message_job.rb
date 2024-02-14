@@ -126,10 +126,10 @@ class UnqueueMessageJob < Postal::Job
                   is_spam = queued_message.message.spam_score > queued_message.server.spam_threshold
                   queued_message.message.update(:spam => 1) if is_spam
                   queued_message.message.append_headers(
-                    "X-Postal-Spam: #{queued_message.message.spam == 1 ? 'yes' : 'no'}",
-                    "X-Postal-Spam-Threshold: #{queued_message.server.spam_threshold}",
-                    "X-Postal-Spam-Score: #{queued_message.message.spam_score}",
-                    "X-Postal-Threat: #{queued_message.message.threat == 1 ? 'yes' : 'no'}"
+                    "X-Venmail-Spam: #{queued_message.message.spam == 1 ? 'yes' : 'no'}",
+                    "X-Venmail-Spam-Threshold: #{queued_message.server.spam_threshold}",
+                    "X-Venmail-Spam-Score: #{queued_message.message.spam_score}",
+                    "X-Venmail-Threat: #{queued_message.message.threat == 1 ? 'yes' : 'no'}"
                   )
                   log "#{log_prefix} Message inspected successfully. Headers added."
                 end
