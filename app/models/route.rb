@@ -136,7 +136,10 @@ class Route < ApplicationRecord
   def create_messages(&block)
     messages = []
     message = self.build_message
-    if  self.mode == 'Maildir' || (self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18)
+    if self.mode == 'Maildir'
+      message.endpoint_type = "MAILDIR"
+      message.endpoint_id = self.endpoint_id
+    elsif self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18
       message.endpoint_type = self.endpoint_type
       message.endpoint_id = self.endpoint_id
     end
@@ -145,7 +148,7 @@ class Route < ApplicationRecord
     messages << message
 
     # Also create any messages for additional endpoints that might exist
-    if  self.mode == 'Maildir' || (self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18)
+    if self.mode == 'Maildir' || (self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18)
       self.additional_route_endpoints.each do |endpoint|
         next unless endpoint.endpoint
         message = self.build_message
@@ -188,6 +191,7 @@ class Route < ApplicationRecord
   end
 
   def validate_endpoint_belongs_to_server
+    return if self.mode == "Maildir"
     if self.endpoint && self.endpoint&.server != self.server
       errors.add :endpoint, :invalid
     end
