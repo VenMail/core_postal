@@ -2,7 +2,7 @@ require 'fileutils'
 
 module Postal
   class MaildirSender < Sender
-    def initialize(domain)
+    def initialize()
       @maildir_path = "/opt/postal/mail"
       @log_id = Nifty::Utils::RandomString.generate(:length => 8).upcase
     end
