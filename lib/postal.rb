@@ -12,6 +12,7 @@ module Postal
     autoload :Helpers
     autoload :HTTP
     autoload :HTTPSender
+    autoload :MaildirSender
     autoload :Job
     autoload :MessageDB
     autoload :MessageInspection
