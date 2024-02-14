@@ -89,7 +89,7 @@ module ApplicationHelper
       unless options[:other] == false
         s << "<optgroup label='Other Options'>"
         Route::MODES.each do |mode|
-          next if mode == 'Endpoint'
+          next if (mode == 'Endpoint' || mode == 'Maildir')
           selected = (selected_value == mode ? "selected='selected'" : '')
           text = t("route_modes.#{mode.underscore}")
           s << "<option value='#{mode}' #{selected}>#{text}</option>"

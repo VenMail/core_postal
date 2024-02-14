@@ -24,7 +24,7 @@ class AdditionalRouteEndpoint < ApplicationRecord
     unless Route::ENDPOINT_TYPES.include?(class_name)
       raise Postal::Error, "Invalid endpoint class name '#{class_name}'"
     end
-    if class_name == "MAILDIR" && uuid = class_name.constantize.find_by_uuid(id)
+    if uuid = class_name.constantize.find_by_uuid(id)
       where(:endpoint_type => class_name, :endpoint_id => uuid).first
     else
       nil
@@ -43,9 +43,6 @@ class AdditionalRouteEndpoint < ApplicationRecord
         class_name, id = value.split('#', 2)
         unless Route::ENDPOINT_TYPES.include?(class_name)
           raise Postal::Error, "Invalid endpoint class name '#{class_name}'"
-        end
-        if class_name != "MAILDIR"
-          self.endpoint = class_name.constantize.find_by_uuid(id)
         end
       else
         self.endpoint = nil

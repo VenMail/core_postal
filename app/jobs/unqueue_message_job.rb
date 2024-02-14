@@ -217,7 +217,7 @@ class UnqueueMessageJob < Postal::Job
                 begin
                   if @fixed_result
                     result = @fixed_result
-                  elsif queued_message.message.endpoint_type == "MAILDIR"
+                  elsif route.mode == "Maildir" || queued_message.message.endpoint_type == "MAILDIR"
                     sender = cached_sender(Postal::MaildirSender, queued_message.message.endpoint.domain)
                   else
                     case queued_message.message.endpoint

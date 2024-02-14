@@ -22,7 +22,7 @@
 
 class Route < ApplicationRecord
 
-  MODES = ['Endpoint', 'Accept', 'Hold', 'Bounce', 'Reject']
+  MODES = ['Endpoint', 'Accept', 'Hold', 'Bounce', 'Reject', 'Maildir']
 
   include HasUUID
 
@@ -32,7 +32,7 @@ class Route < ApplicationRecord
   has_many :additional_route_endpoints, :dependent => :destroy
 
   SPAM_MODES = ['Mark', 'Quarantine', 'Fail']
-  ENDPOINT_TYPES = ['SMTPEndpoint', 'HTTPEndpoint', 'AddressEndpoint', 'MAILDIR']
+  ENDPOINT_TYPES = ['SMTPEndpoint', 'HTTPEndpoint', 'AddressEndpoint']
 
   validates :name, :presence => true, :format => /\A(([a-z0-9\-\.]*)|(\*)|(__returnpath__))\z/
   validates :spam_mode, :inclusion => {:in => SPAM_MODES}
@@ -80,10 +80,6 @@ class Route < ApplicationRecord
         class_name, id = value.split('#', 2)
         unless ENDPOINT_TYPES.include?(class_name)
           raise Postal::Error, "Invalid endpoint class name '#{class_name}'"
-        end
-        if class_name != "MAILDIR"
-          self.endpoint = class_name.constantize.find_by_uuid(id)
-          self.mode = 'Endpoint'
         end
       else
         self.endpoint = nil
@@ -140,7 +136,7 @@ class Route < ApplicationRecord
   def create_messages(&block)
     messages = []
     message = self.build_message
-    if self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18
+    if  self.mode == 'Maildir' || (self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18)
       message.endpoint_type = self.endpoint_type
       message.endpoint_id = self.endpoint_id
     end
@@ -149,7 +145,7 @@ class Route < ApplicationRecord
     messages << message
 
     # Also create any messages for additional endpoints that might exist
-    if self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18
+    if  self.mode == 'Maildir' || (self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18)
       self.additional_route_endpoints.each do |endpoint|
         next unless endpoint.endpoint
         message = self.build_message

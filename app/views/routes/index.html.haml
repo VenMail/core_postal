@@ -41,6 +41,8 @@
               %p.routeList__endpoint{:class => "routeList__endpoint--#{route.endpoint_type&.underscore || 'none'}"}
                 - if route.mode == 'Endpoint'
                   = route.endpoint.description
+                - elsif route.mode == 'Maildir'
+                  = route.name
                 - else
                   = t("route_modes.#{route.mode.underscore}")
               %p.routeList__spamMode= t("route_spam_modes.#{route.spam_mode.underscore}")
