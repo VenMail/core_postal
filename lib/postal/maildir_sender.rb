@@ -13,7 +13,7 @@ module Postal
         result.log_id = @log_id
       
         # Generate a unique filename for the new message file
-        filename = File.join(@maildir_path, message.endpoint.domain, "new", "#{Time.now.to_f}.#{@log_id}")
+        filename = File.join(@maildir_path, message.rcpt_to, "new", "#{Time.now.to_f}.#{@log_id}")
       
         # Write the raw message to the file
         File.write(filename, message.raw_message)
