@@ -267,7 +267,9 @@ class UnqueueMessageJob < Postal::Job
                   queued_message.update_column(:ip_address_id, queued_message.ip_address&.id)
                 else
                   log "#{log_prefix} Message processing completed."
-                  queued_message.message.endpoint.mark_as_used
+                  if route.mode != "Maildir"
+                    queued_message.message.endpoint.mark_as_used
+                  end
                   queued_message.destroy
                 end
               else

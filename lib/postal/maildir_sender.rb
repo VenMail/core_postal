@@ -12,6 +12,13 @@ module Postal
       result = SendResult.new
       result.log_id = @log_id
 
+      http_endpoint = message.route.server.http_endpoints.default.first
+      if http_endpoint
+        http_sender = cached_sender(Postal::HTTPSender, http_endpoint)
+        http_result = http_sender.send_message(message)
+        result.details = http_result.details
+      end
+
       # Generate a unique filename for the new message file
       destination_folder = File.join(@maildir_path, message.recipient_domain, message.rcpt_to)
       new_folder = File.join(destination_folder, "new")
@@ -31,10 +38,10 @@ module Postal
       # Check if the file was written successfully
       if File.exist?(filename)
         result.type = 'Sent'
-        result.details = "Message saved to Maildir successfully"
+        result.details += "\nMessage saved to Maildir successfully"
       else
         result.type = 'HardFail'
-        result.details = "Failed to save message to Maildir"
+        result.details += "\nFailed to save message to Maildir"
       end
 
       result.time = (Time.now - start_time).to_f.round(2)
