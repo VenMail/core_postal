@@ -46,6 +46,13 @@ controller :routes do
         mode: params.mode,
         spam_mode: params.spam_mode
       )
+
+      if new_route.errors.any?
+        error "Validation failed: #{new_route.errors.full_messages.join(', ')}", 422
+      else
+        result[:data] = { id: new_route.id, name: new_route.name }
+      end
+      
       if new_route.persisted?
         result[:data] = { id: new_route.id, name: new_route.name }
       else

@@ -148,7 +148,7 @@ class Route < ApplicationRecord
     messages << message
 
     # Also create any messages for additional endpoints that might exist
-    if self.mode == 'Maildir' || (self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18)
+    if self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18
       self.additional_route_endpoints.each do |endpoint|
         next unless endpoint.endpoint
         message = self.build_message
@@ -175,12 +175,13 @@ class Route < ApplicationRecord
   private
 
   def validate_route_is_routed
-    if self.mode.nil?
+    if self.mode.nil? && self.mode != "Maildir"
       errors.add :endpoint, "must be chosen"
     end
   end
 
   def validate_domain_belongs_to_server
+    return if self.mode == "Maildir"
     if self.domain && ![self.server, self.server.organization].include?(self.domain.owner)
       errors.add :domain, :invalid
     end
@@ -198,6 +199,7 @@ class Route < ApplicationRecord
   end
 
   def validate_name_uniqueness
+    return if self.mode == "Maildir"
     return if self.server.nil?
     if self.domain
       if route = Route.includes(:domain).where(:domains => {:name => self.domain.name}, :name => self.name).where.not(:id => self.id).first
@@ -211,6 +213,7 @@ class Route < ApplicationRecord
   end
 
   def validate_return_path_route_endpoints
+    return if self.mode == "Maildir"
     if return_path?
       if self.mode != 'Endpoint' || self.endpoint_type != 'HTTPEndpoint'
         errors.add :base, "Return path routes must point to an HTTP endpoint"
@@ -219,6 +222,7 @@ class Route < ApplicationRecord
   end
 
   def validate_no_additional_routes_on_non_endpoint_route
+    return if self.mode == "Maildir"
     if self.mode != 'Endpoint' && !self.additional_route_endpoints_array.empty?
       errors.add :base, "Additional routes are not permitted unless the primary route is an actual endpoint"
     end
