@@ -17,6 +17,8 @@ module Postal
         http_sender = cached_sender(Postal::HTTPSender, http_endpoint)
         http_result = http_sender.send_message(message)
         result.details = http_result.details
+      else
+        result.details = "No default HTTP endpoint found for the server"
       end
 
       # Generate a unique filename for the new message file
