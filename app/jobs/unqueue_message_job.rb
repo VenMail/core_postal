@@ -217,7 +217,7 @@ class UnqueueMessageJob < Postal::Job
                 begin
                   if @fixed_result
                     result = @fixed_result
-                  elsif route.mode == "Maildir" || queued_message.message.endpoint_type == "MAILDIR"
+                  elsif route.mode == "Maildir"
                     sender = cached_sender(Postal::MaildirSender, queued_message.message.endpoint.domain)
                   else
                     case queued_message.message.endpoint
@@ -227,8 +227,6 @@ class UnqueueMessageJob < Postal::Job
                       sender = cached_sender(Postal::HTTPSender, queued_message.message.endpoint)
                     when AddressEndpoint
                       sender = cached_sender(Postal::SMTPSender, queued_message.message.endpoint.domain, nil, :force_rcpt_to => queued_message.message.endpoint.address)
-                    when "MAILDIR"
-                      sender = cached_sender(Postal::MaildirSender, queued_message.message.endpoint.domain)
                     else
                       log "#{log_prefix} Invalid endpoint for route (#{queued_message.message.endpoint_type})"
                       queued_message.message.create_delivery('HardFail', :details => "Invalid endpoint for route.")

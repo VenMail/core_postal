@@ -21,9 +21,6 @@ class AdditionalRouteEndpoint < ApplicationRecord
 
   def self.find_by_endpoint(endpoint)
     class_name, id = endpoint.split('#', 2)
-    if class_name == "MAILDIR"
-      nil
-    end
     unless Route::ENDPOINT_TYPES.include?(class_name)
       raise Postal::Error, "Invalid endpoint class name '#{class_name}'"
     end

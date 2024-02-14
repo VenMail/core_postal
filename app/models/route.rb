@@ -137,7 +137,6 @@ class Route < ApplicationRecord
     messages = []
     message = self.build_message
     if self.mode == 'Maildir'
-      message.endpoint_type = "MAILDIR"
       message.endpoint_id = self.endpoint_id
     elsif self.mode == 'Endpoint' && self.server.message_db.schema_version >= 18
       message.endpoint_type = self.endpoint_type
