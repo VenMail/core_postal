@@ -219,6 +219,10 @@ class UnqueueMessageJob < Postal::Job
                     result = @fixed_result
                   elsif route.mode == "Maildir"
                     sender = cached_sender(Postal::MaildirSender)
+                    result = sender.send_message(queued_message.message)
+                    if result.connect_error
+                      @fixed_result = result
+                    end
                   else
                     case queued_message.message.endpoint
                     when SMTPEndpoint
