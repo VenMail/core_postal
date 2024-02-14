@@ -81,8 +81,10 @@ class Route < ApplicationRecord
         unless ENDPOINT_TYPES.include?(class_name)
           raise Postal::Error, "Invalid endpoint class name '#{class_name}'"
         end
-        self.endpoint = class_name.constantize.find_by_uuid(id)
-        self.mode = 'Endpoint'
+        if class_name != "MAILDIR"
+          self.endpoint = class_name.constantize.find_by_uuid(id)
+          self.mode = 'Endpoint'
+        end
       else
         self.endpoint = nil
         self.mode = value
