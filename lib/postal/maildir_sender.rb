@@ -12,7 +12,7 @@ module Postal
       result = SendResult.new
       result.log_id = @log_id
 
-      http_endpoint = message.route.server.http_endpoints.default.first
+      http_endpoint = message.route.server.http_endpoints.first
       if http_endpoint
         http_sender = cached_sender(Postal::HTTPSender, http_endpoint)
         http_result = http_sender.send_message(message)
