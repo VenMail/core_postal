@@ -347,6 +347,13 @@ module Postal
       end
 
       #
+      # Return the recipient username for this message?
+      #
+      def recipient_username
+        self.rcpt_to ? self.rcpt_to.split('@').first : nil
+      end
+
+      #
       # Create a new item in the message queue for this message
       #
       def add_to_message_queue(options = {})

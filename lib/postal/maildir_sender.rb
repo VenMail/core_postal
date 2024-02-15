@@ -30,7 +30,7 @@ module Postal
       end
 
       # Generate a unique filename for the new message file
-      destination_folder = File.join(@maildir_path, message.recipient_domain, message.rcpt_to)
+      destination_folder = File.join(@maildir_path, message.recipient_domain, message.recipient_username)
       new_folder = File.join(destination_folder, "new")
       FileUtils.mkdir_p(new_folder) unless Dir.exist?(new_folder)
 
