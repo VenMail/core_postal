@@ -7,6 +7,14 @@ module Postal
       @log_id = Nifty::Utils::RandomString.generate(:length => 8).upcase
     end
 
+    def cached_sender(klass, *args)
+      @sender ||= begin
+        sender = klass.new(*args)
+        sender.start
+        sender
+      end
+    end
+  
     def send_message(message)
       start_time = Time.now
       result = SendResult.new
