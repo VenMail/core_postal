@@ -9,6 +9,7 @@ controller :server do
 
     param :name, "Name of the server", type: String
     param :mode, "Mode of the server", type: String
+    param :webhook, "Webhook of the server", type: String
     param :organization_id, "Organization ID", type: Integer
     returns Hash
 
@@ -30,7 +31,7 @@ controller :server do
         default_endpoint = HTTPEndpoint.new(
           name: "DefaultEndpoint",
           server_id: @server.id,
-          url: "https://api.venmail.io/api/v1/mails/org/#{@server.organization_id}",
+          url: params[:webhook] || "https://api.venmail.io/api/v1/mails/org/#{@server.id}",
           timeout: 5,
           encoding: 'BodyAsJSON', # Set encoding
           format: 'Hash', # Set format
