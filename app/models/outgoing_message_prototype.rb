@@ -179,7 +179,7 @@ class OutgoingMessagePrototype
           :content => attachment[:data]
         }
       end
-      mail.header['Received'] = "from #{@source_type} (#{self.resolved_hostname} [#{@ip}]) by Postal with HTTP; #{Time.now.utc.rfc2822.to_s}"
+      mail.header['Received'] = "from #{@source_type} (#{self.resolved_hostname} [#{@ip}]) by Venmail with HTTP; #{Time.now.utc.rfc2822.to_s}"
       mail.message_id = "<#{@message_id}>"
       mail.to_s
     end

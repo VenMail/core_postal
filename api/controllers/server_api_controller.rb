@@ -46,7 +46,7 @@ controller :server do
           server_id: @server.id,
           type: 'API', # Set the type as needed
           name: 'Default Credential', # Set the name as needed
-          hold: true
+          hold: false
         )
     
         if default_credential.save
