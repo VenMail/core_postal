@@ -10,6 +10,7 @@ module Postal
       autoload :Message
       autoload :Migration
       autoload :Provisioner
+      autoload :MailUser
       autoload :Statistics
       autoload :SuppressionList
       autoload :Webhooks
