@@ -231,7 +231,7 @@ module Postal
         # Lookup domain and get server
         dm = Domain.where(name: domain).first
         log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
-        server = Server.find(dm.server_id)
+        server = domain.server
 
         log "\e[33m   WARN: Failed to find server #{dm.server_id}\e[0m" unless server
 
