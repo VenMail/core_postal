@@ -242,7 +242,14 @@ module Postal
         salt = stored_hashed_password[14..-1]
 
         # Hash the input password with the extracted salt
-        hashed_input_password = Digest::SHA512.base64digest(input_password + salt)
+        hashed_input_password = Digest::SHA256.base64digest(input_password + salt)
+
+        result = hashed_input_password == hashed_password
+        if !result
+          log "\e[33m   WARN: AUTH failure for #{@email}\e[0m"
+        else
+          server.message_db.mail_user.update_login(email)
+        end
 
         # Compare the hashed input password with the stored hashed password
         # todo: get and use default SMTP credential, then update last_login?
