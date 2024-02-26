@@ -229,7 +229,12 @@ module Postal
         domain = email.split('@').last
 
         # Lookup domain and get server
-        server = Domain.where(name: domain).first&.server
+        dm = Domain.where(name: domain).first
+        log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
+        server = Server.find(dm.server_id)
+
+        log "\e[33m   WARN: Failed to find server #{dm.server_id}\e[0m" unless server
+
         return false unless server
 
         # Query the database to retrieve the hashed password for the provided email
@@ -246,7 +251,7 @@ module Postal
 
         result = hashed_input_password == hashed_password
         if !result
-          log "\e[33m   WARN: AUTH failure for #{@email}\e[0m"
+          log "\e[33m   WARN: AUTH failure for #{email}\e[0m"
         else
           server.message_db.mail_user.update_login(email)
         end
