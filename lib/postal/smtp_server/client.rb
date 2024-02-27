@@ -508,6 +508,17 @@ module Postal
             message.credential_id = @credential.id
             message.save
 
+          when :domain
+            # Outgoing messages are just inserted
+            message = server.message_db.new_message
+            message.rcpt_to = rcpt_to
+            message.mail_from = @mail_from
+            message.raw_message = @data
+            message.received_with_ssl = @tls
+            message.scope = 'outgoing'
+            message.domain_id = domain&.id
+            message.save
+
           when :bounce
             if rp_route = server.routes.where(name: '__returnpath__').first
               # If there's a return path route, we can use this to create the message
