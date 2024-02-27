@@ -36,6 +36,7 @@ WORKDIR /opt/postal/app
 
 # Install bundler
 RUN gem install bundler -v 2.1.4 --no-doc
+RUN gem install unix-crypt
 
 # Install the latest and active gem dependencies and re-run
 # the appropriate commands to handle installs.
