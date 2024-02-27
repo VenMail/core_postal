@@ -36,11 +36,10 @@ WORKDIR /opt/postal/app
 
 # Install bundler
 RUN gem install bundler -v 2.1.4 --no-doc
-RUN gem install unix-crypt
 
 # Install the latest and active gem dependencies and re-run
 # the appropriate commands to handle installs.
-COPY Gemfile Gemfile.lock ./
+COPY --chown=postal Gemfile Gemfile.lock ./
 RUN bundle install -j 4
 
 # Copy the application (and set permissions)
