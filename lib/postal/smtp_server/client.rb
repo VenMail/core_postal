@@ -368,6 +368,17 @@ module Postal
             '250 OK'
           end
 
+        elsif @domain
+          # This is outgoing mail for authenticated domain user
+          @state = :rcpt_to_received
+          if @domain.owner.suspended?
+            '535 Mail server has been suspended'
+          else
+            log "Added external address '#{rcpt_to}'"
+            @recipients << [:credential, rcpt_to, @server]
+            '250 OK'
+          end
+
         elsif uname && domain && route = Route.find_by_name_and_domain(uname, domain)
           # This is incoming mail for a route
           @state = :rcpt_to_received
@@ -392,8 +403,6 @@ module Postal
           if @credential
             # Retry with credential
             @credential.use
-            rcpt_to(data)
-          elsif @domain
             rcpt_to(data)
           else
             '530 Authentication required'
