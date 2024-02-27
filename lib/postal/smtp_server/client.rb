@@ -238,6 +238,11 @@ module Postal
 
         return false unless server
 
+        if server.suspended?
+          log "\e[33m   WARN: Mail server suspended\e[0m"
+          return false
+        end
+
         # Query the database to retrieve the hashed password for the provided email
         user = server.message_db.mail_user.find(email)
         return false unless user
@@ -251,6 +256,7 @@ module Postal
         if !result
           log "\e[33m   WARN: AUTH failure for #{email}\e[0m"
         else
+          @domain = dm
           server.message_db.mail_user.update_login(email)
         end
 
@@ -384,6 +390,8 @@ module Postal
           if @credential
             # Retry with credential
             @credential.use
+            rcpt_to(data)
+          elsif @domain
             rcpt_to(data)
           else
             '530 Authentication required'
