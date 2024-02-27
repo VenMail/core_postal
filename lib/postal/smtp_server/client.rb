@@ -228,10 +228,12 @@ module Postal
       def valid_user_authentication?(email, input_password)
         # Extract domain from email
         domain = email.split('@').last
+        return false unless domain.include?(".")
 
         # Lookup domain and get server
         dm = Domain.includes(:owner).where(name: domain).first
         log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
+        return false unless dm
         server = dm&.owner
 
         log "\e[33m   WARN: Failed to find server #{dm.owner_id}\e[0m" unless server
