@@ -234,7 +234,7 @@ module Postal
         log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
         server = dm&.owner
 
-        log "\e[33m   WARN: Failed to find server #{dm.server_id}\e[0m" unless server
+        log "\e[33m   WARN: Failed to find server #{dm.owner_id}\e[0m" unless server
 
         return false unless server
 
