@@ -1,6 +1,7 @@
 require 'resolv'
 require 'nifty/utils/random_string'
 require 'digest'
+require 'unix-crypt'
 
 module Postal
   module SMTPServer
@@ -229,9 +230,9 @@ module Postal
         domain = email.split('@').last
 
         # Lookup domain and get server
-        dm = Domain.where(name: domain).first
+        dm = Domain.includes(:owner).where(name: domain).first
         log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
-        server = dm.server
+        server = dm&.owner
 
         log "\e[33m   WARN: Failed to find server #{dm.server_id}\e[0m" unless server
 
@@ -241,17 +242,18 @@ module Postal
         user = server.message_db.mail_user.find(email)
         return false unless user
 
-        hashed_password = user.password
+        hashed_password = user['password']
 
         # Extract the salt from the hashed password? -1 or 28?
-        salt = stored_hashed_password[14..-1]
+        salt = hashed_password[14..29]
 
         # Hash the input password with the extracted salt
-        hashed_input_password = Digest::SHA256.base64digest(input_password + salt)
+        hashed_input_password = UnixCrypt::SHA256.build(input_password, salt)
 
         result = hashed_input_password == hashed_password
         if !result
-          log "\e[33m   WARN: AUTH failure for #{email}\e[0m"
+          log "\e[33m   WARN: AUTH failure for #{hashed_input_password}\e[0m"
+          log "\e[33m   DEBUG: STORED PASS #{hashed_password}\e[0m"
         else
           server.message_db.mail_user.update_login(email)
         end
