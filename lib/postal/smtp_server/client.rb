@@ -1,7 +1,7 @@
 require 'resolv'
 require 'nifty/utils/random_string'
 require 'digest'
-require 'unix-crypt'
+require 'unix_crypt'
 
 module Postal
   module SMTPServer
@@ -244,23 +244,18 @@ module Postal
 
         hashed_password = user['password']
 
-        # Extract the salt from the hashed password? -1 or 28?
-        salt = hashed_password[14..29]
+        check = hashed_password[14..-1]
 
-        # Hash the input password with the extracted salt
-        hashed_input_password = UnixCrypt::SHA256.build(input_password, salt)
+        result = UnixCrypt.valid?(input_password, check)
 
-        result = hashed_input_password == hashed_password
         if !result
-          log "\e[33m   WARN: AUTH failure for #{hashed_input_password}\e[0m"
-          log "\e[33m   DEBUG: STORED PASS #{hashed_password}\e[0m"
+          log "\e[33m   WARN: AUTH failure for #{email}\e[0m"
         else
           server.message_db.mail_user.update_login(email)
         end
 
-        # Compare the hashed input password with the stored hashed password
         # todo: get and use default SMTP credential, then update last_login?
-        hashed_input_password == hashed_password
+        result
       end
 
       def auth_cram_md5(_data)

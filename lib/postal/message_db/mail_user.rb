@@ -23,7 +23,7 @@ module Postal
         def update_login(email)
           # Use current date for last_login
           current_date = Date.today.strftime("%Y-%m-%d")
-          @database.update('mail_users', {:last_login => current_date}, :where => {:email => email})
+          @database.update('mail_users', {:last_login => current_date}, :db => 'maildb', :where => {:email => email})
         end
       end
     end
