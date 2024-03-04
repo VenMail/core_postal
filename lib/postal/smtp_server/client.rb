@@ -213,8 +213,8 @@ module Postal
 
       def authenticate(username, password)
         # Check if the provided key (password) is a valid credential key
-        if credential = Credential.where(type: 'SMTP', key: password).first
-          credential.use
+        if @credential = Credential.where(type: 'SMTP', key: password).first
+          @credential.use
           "235 Granted for #{credential.server.organization.permalink}/#{credential.server.permalink}"
         elsif valid_user_authentication?(username, password)
           # If not a valid credential key, treat it as regular username and password authentication
@@ -244,6 +244,8 @@ module Postal
           log "\e[33m   WARN: Mail server suspended\e[0m"
           return false
         end
+
+        return false unless server.message_db
 
         # Query the database to retrieve the hashed password for the provided email
         user = server.message_db.mail_user.find(email)
