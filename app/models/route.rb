@@ -174,11 +174,11 @@ class Route < ApplicationRecord
   private
 
   def validate_route_is_routed
-    if self.mode.nil? && self.mode != "Maildir"
+    if self.mode.nil? || self.mode != "Maildir"
       errors.add :endpoint, "must be chosen"
     end
   end
-
+  
   def validate_domain_belongs_to_server
     return if self.mode == "Maildir"
     if self.domain && ![self.server, self.server.organization].include?(self.domain.owner)

@@ -245,7 +245,7 @@ module Postal
           return false
         end
 
-        return false unless server.message_db
+        return false unless server.respond_to?(:message_db)
 
         # Query the database to retrieve the hashed password for the provided email
         user = server.message_db.mail_user.find(email)
