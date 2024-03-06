@@ -62,12 +62,10 @@ class Route < ApplicationRecord
   end
 
   def _endpoint
-    @endpoint ||= begin
-      if self.mode == 'Endpoint'
-        endpoint ? "#{endpoint.class}##{endpoint.uuid}" : nil
-      else
-        self.mode
-      end
+    if mode == "Endpoint"
+      @endpoint ||= endpoint ? "#{endpoint.class}##{endpoint.uuid}" : nil
+    else
+      @endpoint ||= mode
     end
   end
 
@@ -81,6 +79,9 @@ class Route < ApplicationRecord
         unless ENDPOINT_TYPES.include?(class_name)
           raise Postal::Error, "Invalid endpoint class name '#{class_name}'"
         end
+
+        self.endpoint = class_name.constantize.find_by_uuid(id)
+        self.mode = "Endpoint"
       else
         self.endpoint = nil
         self.mode = value
