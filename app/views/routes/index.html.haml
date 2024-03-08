@@ -44,7 +44,8 @@
                 - elsif route.mode == 'Maildir'
                   = route.name
                 - else
-                  = t("route_modes.#{route.mode.underscore}")
+                  = route.mode.nil? ? "" : t("route_modes.#{route.mode.underscore}")
+
               %p.routeList__spamMode= t("route_spam_modes.#{route.spam_mode.underscore}")
 
     %p.u-center= link_to "Add another route", [:new, organization, @server, :route], :class => 'button button--positive'
