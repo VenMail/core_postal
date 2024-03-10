@@ -39,7 +39,7 @@ module Mail
 
     ## Fix bug in basic parsing
     def parse_message
-      if !self.multipart
+      if !self.multipart?
         self.header, self.body = raw_source.split(/\r?\n\r?\n/m, 2)
       end
     end
