@@ -4,11 +4,11 @@ module Mail
     # Handle windows-1258 as windows-1252 when decoding
     def Encodings.q_value_decode(str)
       str = str.sub(/\=\?windows-?1258\?/i, '\=?windows-1252?')
-      Utilities.q_value_decode(str)
+      RubyVer.q_value_decode(str)
     end
     def Encodings.b_value_decode(str)
       str = str.sub(/\=\?windows-?1258\?/i, '\=?windows-1252?')
-      Utilities.b_value_decode(str)
+      RubyVer.b_value_decode(str)
     end
   end
 
@@ -39,7 +39,14 @@ module Mail
 
     ## Fix bug in basic parsing
     def parse_message
-      self.header, self.body = raw_source.split(/\r?\n\r?\n/m, 2)
+      if content_type =~ /^multipart/
+        boundary = content_type.match(/boundary="?(.*)"?/i)[1]
+        parts = raw_source.split(/--#{Regexp.escape(boundary)}/)
+        self.header = parts.shift
+        self.body = parts.join('').strip
+      else
+        self.header, self.body = raw_source.split(/\r?\n\r?\n/m, 2)
+      end
     end
 
     # Handle attached emails as attachments
@@ -70,17 +77,21 @@ module Mail
     end
 
     def decode_body_as_text
-      body_text = decode_body
-      charset_tmp = Encoding.find(Utilities.pick_encoding(charset)) rescue 'ASCII'
-      charset_tmp = 'Windows-1252' if charset_tmp.to_s =~ /windows-?1258/i
-      if charset_tmp == Encoding.find('UTF-7')
-        body_text.force_encoding('UTF-8')
-        decoded = body_text.gsub(/\+.*?\-/m) {|n|Base64.decode64(n[1..-2]+'===').force_encoding('UTF-16BE').encode('UTF-8')}
-      else
-        body_text.force_encoding(charset_tmp)
-        decoded = body_text.encode("utf-8", :invalid => :replace, :undef => :replace)
+      begin
+        decoded_text = Mail::Encodings.get_encoding(encoding).decode(body.to_s)
+        decoded_text.encode('UTF-8', invalid: :replace, undef: :replace)
+      rescue
+        charset_tmp = Encoding.find(Ruby19.pick_encoding(charset)) rescue 'ASCII'
+        charset_tmp = 'Windows-1252' if charset_tmp.to_s =~ /windows-?1258/i
+        if charset_tmp == Encoding.find('UTF-7')
+          body_text = body.to_s.force_encoding('UTF-8')
+          decoded = body_text.gsub(/\+.*?\-/m) {|n|Base64.decode64(n[1..-2]+'===').force_encoding('UTF-16BE').encode('UTF-8')}
+        else
+          body_text = body.to_s.force_encoding(charset_tmp)
+          decoded = body_text.encode("utf-8", :invalid => :replace, :undef => :replace)
+        end
+        decoded.valid_encoding? ? decoded : decoded.encode("utf-16le", :invalid => :replace, :undef => :replace).encode("utf-8")
       end
-      decoded.valid_encoding? ? decoded : decoded.encode("utf-16le", :invalid => :replace, :undef => :replace).encode("utf-8")
     end
   end
 
