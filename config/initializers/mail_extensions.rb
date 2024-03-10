@@ -4,11 +4,11 @@ module Mail
     # Handle windows-1258 as windows-1252 when decoding
     def Encodings.q_value_decode(str)
       str = str.sub(/\=\?windows-?1258\?/i, '\=?windows-1252?')
-      RubyVer.q_value_decode(str)
+      Utilities.q_value_decode(str)
     end
     def Encodings.b_value_decode(str)
       str = str.sub(/\=\?windows-?1258\?/i, '\=?windows-1252?')
-      RubyVer.b_value_decode(str)
+      Utilities.b_value_decode(str)
     end
   end
 
@@ -71,7 +71,7 @@ module Mail
 
     def decode_body_as_text
       body_text = decode_body
-      charset_tmp = Encoding.find(Ruby19.pick_encoding(charset)) rescue 'ASCII'
+      charset_tmp = Encoding.find(Utilities.pick_encoding(charset)) rescue 'ASCII'
       charset_tmp = 'Windows-1252' if charset_tmp.to_s =~ /windows-?1258/i
       if charset_tmp == Encoding.find('UTF-7')
         body_text.force_encoding('UTF-8')
