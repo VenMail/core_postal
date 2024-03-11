@@ -39,9 +39,8 @@ module Mail
 
     ## Fix bug in basic parsing
     def parse_message
-      header_part, body_part = raw_source.lstrip.split(/\r?\n\r?\n/m, 2)
-      self.header = header_part
-      self.body   = body_part
+      self.header, self.body = raw_source.split(/\r?\n(?:\r?\n)+/, 2) 
+     #self.header, self.body = raw_source.split(/\r?\n\r?\n/m, 2)
     end
 
     # Handle attached emails as attachments
