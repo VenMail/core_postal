@@ -77,6 +77,39 @@ class Domain < ApplicationRecord
     verified_at.present?
   end
 
+  CLOUDFLARE_IP_RANGES = [
+    IPAddr.new('173.245.48.0/20'),
+    IPAddr.new('103.21.244.0/22'),
+    IPAddr.new('103.22.200.0/22'),
+    IPAddr.new('103.31.4.0/22'),
+    IPAddr.new('141.101.64.0/18'),
+    IPAddr.new('108.162.192.0/18'),
+    IPAddr.new('190.93.240.0/20'),
+    IPAddr.new('188.114.96.0/20'),
+    IPAddr.new('197.234.240.0/22'),
+    IPAddr.new('198.41.128.0/17'),
+    IPAddr.new('162.158.0.0/15'),
+    IPAddr.new('104.16.0.0/12'),
+    IPAddr.new('172.64.0.0/13'),
+    IPAddr.new('131.0.72.0/22')
+  ]
+
+  def proxied_through_cloudflare?(name = self.name)
+    begin
+      a_records = resolver.getresources(name, Resolv::DNS::Resource::IN::A)
+      a_records.any? { |record| cloudflare_ip?(record.address) }
+    rescue Resolv::ResolvError
+      false
+    end
+  end
+
+  private
+
+  def cloudflare_ip?(ip)
+    ip = IPAddr.new(ip.to_s)
+    CLOUDFLARE_IP_RANGES.any? { |range| range.include?(ip) }
+  end
+
   def verify
     self.verified_at = Time.now
     self.save!

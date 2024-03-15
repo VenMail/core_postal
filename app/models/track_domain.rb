@@ -52,25 +52,33 @@ class TrackDomain < ApplicationRecord
   end
 
   def check_dns
-    result = self.domain.resolver.getresources(self.full_name, Resolv::DNS::Resource::IN::CNAME)
-    records = result.map { |r| r.name.to_s.downcase }
-    if records.empty?
-      self.dns_status = 'Missing'
-      self.dns_error = "There is no record at #{self.full_name}"
+    if self.proxied_through_cloudflare?
+      self.dns_status = 'OK'
+      self.dns_error = nil
     else
-      if records.size == 1 && records.first == Postal.config.dns.track_domain
-        self.dns_status = 'OK'
-        self.dns_error = nil
-      else
-        self.dns_status = 'Invalid'
-        self.dns_error = "There is a CNAME record at #{self.full_name} but it points to #{records.first} which is incorrect. It should point to #{Postal.config.dns.track_domain}."
+      begin
+        result = self.domain.resolver.getresources(self.full_name, Resolv::DNS::Resource::IN::CNAME)
+        records = result.map { |r| r.name.to_s.downcase }
+        if records.empty?
+          self.dns_status = 'Missing'
+          self.dns_error = "There is no record at #{self.full_name}"
+        elsif records.size == 1 && records.first == Postal.config.dns.track_domain
+          self.dns_status = 'OK'
+          self.dns_error = nil
+        else
+          self.dns_status = 'Invalid'
+          self.dns_error = "There is a CNAME record at #{self.full_name} but it points to #{records.first} which is incorrect. It should point to #{Postal.config.dns.track_domain}."
+        end
+      rescue Resolv::ResolvError => e
+        self.dns_status = 'Error'
+        self.dns_error = "DNS resolution error: #{e.message}"
       end
     end
     self.dns_checked_at = Time.now
     self.save!
     dns_ok?
   end
-
+  
   def use_ssl?
     ssl_enabled?
   end
