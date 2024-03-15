@@ -89,9 +89,18 @@ class Domain < ApplicationRecord
     IPAddr.new('197.234.240.0/22'),
     IPAddr.new('198.41.128.0/17'),
     IPAddr.new('162.158.0.0/15'),
-    IPAddr.new('104.16.0.0/12'),
+    IPAddr.new('104.16.0.0/13'),
+    IPAddr.new('104.24.0.0/14'),
     IPAddr.new('172.64.0.0/13'),
-    IPAddr.new('131.0.72.0/22')
+    IPAddr.new('131.0.72.0/22'),
+
+    IPAddr.new('2400:cb00::/32'),
+    IPAddr.new('2606:4700::/32'),
+    IPAddr.new('2803:f800::/32'),
+    IPAddr.new('2405:b500::/32'),
+    IPAddr.new('2405:8100::/32'),
+    IPAddr.new('2a06:98c0::/29'),
+    IPAddr.new('2c0f:f248::/32')
   ]
 
   def proxied_through_cloudflare?(name = self.name)
