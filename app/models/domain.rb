@@ -121,8 +121,6 @@ class Domain < ApplicationRecord
     "#{Postal.config.dns.dkim_identifier}-#{dkim_identifier_string}"
   end
 
-  private
-
   def cloudflare_ip?(ip)
     ip = IPAddr.new(ip.to_s)
     CLOUDFLARE_IP_RANGES.any? { |range| range.include?(ip) }
@@ -140,10 +138,6 @@ class Domain < ApplicationRecord
 
   def generate_dkim_key
     self.dkim_private_key = OpenSSL::PKey::RSA.new(1024).to_s
-  end
-
-  def to_param
-    uuid
   end
 
   def verification_email_addresses
