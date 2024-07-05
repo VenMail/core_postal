@@ -30,6 +30,7 @@ module Postal
     autoload :SMTPSender
     autoload :SMTPServer
     autoload :SpamCheck
+    autoload :SpamChecker
     autoload :TrackingMiddleware
     autoload :UserCreator
     autoload :Version

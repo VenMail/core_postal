@@ -15,6 +15,7 @@ services:
       WAIT_FOR_TARGETS: |-
         mariadb:3306
         rabbitmq:5672
+        rspamd:11334
 
   mariadb:
     image: mariadb
@@ -27,3 +28,13 @@ services:
   rabbitmq:
     image: rabbitmq:3
     restart: always
+
+  rspamd:
+    image: rspamd/rspamd
+    restart: always
+    ports:
+      - "11333:11333"
+      - "11334:11334"
+      - "11335:11335"
+    volumes:
+      - ./rspamd:/etc/rspamd
