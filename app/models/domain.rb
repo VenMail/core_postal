@@ -113,6 +113,10 @@ class Domain < ApplicationRecord
     end
   end
 
+  def dkim_key
+    @dkim_key ||= OpenSSL::PKey::RSA.new(dkim_private_key)
+  end
+
   private
 
   def cloudflare_ip?(ip)
@@ -132,10 +136,6 @@ class Domain < ApplicationRecord
 
   def generate_dkim_key
     self.dkim_private_key = OpenSSL::PKey::RSA.new(1024).to_s
-  end
-
-  def dkim_key
-    @dkim_key ||= OpenSSL::PKey::RSA.new(dkim_private_key)
   end
 
   def to_param
