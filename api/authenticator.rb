@@ -33,7 +33,7 @@ authenticator :master do
     if key = request.headers['X-Master-Key']
       if key == 'l<LJF*SMH*;xcpk9o8j57FS21ZUD*B'
         arange = IPAddr.new('172.19.0.0/24')
-        whitelist =  ['102.219.153.196', '104.200.31.152', '185.218.126.208', '2600:3c03::f03c:93ff:fed1:d240', 'fe80::250:56ff:fe4b:d684']
+        whitelist =  Postal.config.general.whitelist
         if arange.include?(IPAddr.new(request.ip)) || whitelist.include?(request.ip)
           'authok'
         else
