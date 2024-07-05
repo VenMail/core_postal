@@ -5,6 +5,7 @@ services:
     depends_on:
       - mariadb
       - rabbitmq
+      - rspamd
     entrypoint: ["/docker-entrypoint.sh"]
     volumes:
       - "./docker/ci-config:/config"
