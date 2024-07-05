@@ -411,14 +411,20 @@ module Postal
       #
       def add_outgoing_headers
         headers = []
+        
+        # Add DKIM header if domain is present
         if self.domain
           dkim = Postal::DKIMHeader.new(self.domain, self.raw_message)
           headers << dkim.dkim_header
         end
+        
+        # Add custom message ID header
         headers << "X-Venmail-MsgID: #{self.token}"
-        append_headers(*headers)
+        
+        # Append all headers to the email message
+        append_headers(headers.join("\r\n"))
       end
-
+      
       #
       # Append a header to the existing headers
       #

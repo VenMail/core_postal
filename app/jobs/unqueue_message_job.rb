@@ -226,7 +226,7 @@ class UnqueueMessageJob < Postal::Job
                   else
                     case queued_message.message.endpoint
                     when SMTPEndpoint
-                      sender = cached_sender(Postal::SMTPSender, queued_message.message.recipient_domain, nil, :servers => [queued_message.message.endpoint])
+                      sender = cached_sender(Postal::SMTPSender, queued_message.message.recipient_domain, nil, :servers => [queued_message.message.endpoint.to_smtp_client_server])
                     when HTTPEndpoint
                       sender = cached_sender(Postal::HTTPSender, queued_message.message.endpoint)
                     when AddressEndpoint
