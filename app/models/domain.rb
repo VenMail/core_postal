@@ -117,6 +117,10 @@ class Domain < ApplicationRecord
     @dkim_key ||= OpenSSL::PKey::RSA.new(dkim_private_key)
   end
 
+  def dkim_identifier
+    "#{Postal.config.dns.dkim_identifier}-#{dkim_identifier_string}"
+  end
+
   private
 
   def cloudflare_ip?(ip)
@@ -153,10 +157,6 @@ class Domain < ApplicationRecord
   def dkim_record
     public_key = dkim_key.public_key.to_s.gsub(/-+[A-Z ]+-+\n/, '').gsub(/\n/, '')
     "v=DKIM1; t=s; h=sha256; p=#{public_key};"
-  end
-
-  def dkim_identifier
-    "#{Postal.config.dns.dkim_identifier}-#{dkim_identifier_string}"
   end
 
   def dkim_record_name
