@@ -16,7 +16,7 @@ module Postal
           return
         end
 
-        response = request(raw_message, inspection.scope)
+        response = request(inspection.message, inspection.scope)
         response = JSON.parse(response.body)
         return unless response['symbols'].is_a?(Hash)
 
@@ -31,11 +31,12 @@ module Postal
 
       private
 
-      def request(raw_message, scope)
+      def request(message, scope)
         http = Net::HTTP.new(@config.host, @config.port)
         http.use_ssl = true if @config.ssl
         http.read_timeout = 10
         http.open_timeout = 10
+        raw_message = message.raw_message
 
         request = Net::HTTP::Post.new('/checkv2')
         request.body = raw_message
