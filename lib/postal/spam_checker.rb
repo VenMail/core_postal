@@ -494,34 +494,34 @@ module Postal
 
       def check_for_mismatched_sender(sender_email, links)
         return 0 unless sender_email =~ EMAIL_REGEX && links.is_a?(Hash)
-
+      
         sender_domain = sender_email.split('@').last
         common_domains = %w[gmail.com googlemail.com yahoo.com outlook.com hotmail.com]
         return 0 if common_domains.include?(sender_domain)
-
+      
         tracking_domains = %w[
           mailto: track click. list-manage.com mcsv.net rs6.net sendgrid.net sgizmo.com
           mktoresp.com hubspot.com hubspotemail.net cmail1.com createsend.com aweber.com
           aweber.net getresponse.com mailgun.org infusionsoft.com acems1.com e2ma.net
           salesforce.com dripemail2.com pardot.com klaviyo.com convertkit.com
         ]
-
-        sender_domain_regex = /^(https?:\/\/)?(?:[^\/]+\.)?#{Regexp.escape(sender_domain)}(\/|$)/i
+      
         trusted_domains_pattern = TRUSTED_DOMAINS.map { |domain| Regexp.escape(domain) }.join('|')
-        trusted_domains_regex = /^(https?:\/\/)?(?:[^\/]+\.)?(#{trusted_domains_pattern})(\/|$)/i
+        sender_domain_regex = /^(https?:\/\/)?([^\/]+\.)*#{Regexp.escape(sender_domain)}(\/|$)/i
+        trusted_domains_regex = /^(https?:\/\/)?([^\/]+\.)*(#{trusted_domains_pattern})(\/|$)/i
       
         mismatched_count = 0
-
+      
         links.each_key do |href|
           next if tracking_domains.any? { |domain| href.include?(domain) }
-          unless href.match?(sender_domain_regex) || href.match?(trusted_domains_regex)
-            mismatched_count += 1
-          end
+          next if href =~ sender_domain_regex || href =~ trusted_domains_regex
+      
+          mismatched_count += 1
         end
-
+      
         mismatched_count
       end
-
+      
       def classify_email(sender_email, parsed)
         links = extract_links(parsed)
         bad_links = check_for_spam_links(links)
