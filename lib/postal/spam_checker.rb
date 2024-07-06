@@ -443,6 +443,8 @@ module Postal
     urgent 
     )\b/ix.freeze
 
+    EMAIL_REGEX = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.freeze
+
     class << self
       def extract_links(content)
         links = {}
@@ -456,6 +458,10 @@ module Postal
             links[href] << label
         end
         links
+      rescue => e
+        # Handle Nokogiri errors gracefully
+        puts "Error parsing HTML content: #{e.message}"
+        {}
       end
 
       def check_for_spam_links(links)
@@ -477,7 +483,7 @@ module Postal
       end
 
       def check_for_mismatched_sender(sender_email, links)
-        return 0 unless sender_email =~ URI::MailTo::EMAIL_REGEXP && links.is_a?(Hash)
+        return 0 unless sender_email =~ EMAIL_REGEX && links.is_a?(Hash)
 
         sender_domain = sender_email.split('@').last
         common_domains = %w[gmail.com yahoo.com outlook.com hotmail.com]
@@ -514,7 +520,7 @@ module Postal
         score = 0
         score += 2 * bad_links
         score += 1 * mismatched
-        score += 1 * contains_gibberish ? 1 : 0
+        score += (contains_gibberish ? 1 : 0)
         score += 0.5 * marketing_count
         score += 1 * spam_count
         score += 1.5 * offensive_count
