@@ -497,10 +497,17 @@ module Postal
         common_domains = %w[gmail.com yahoo.com outlook.com hotmail.com]
         return 0 if common_domains.include?(sender_domain)
 
+        tracking_domains = %w[
+          mailto: track click. list-manage.com mcsv.net rs6.net sendgrid.net sgizmo.com
+          mktoresp.com hubspot.com hubspotemail.net cmail1.com createsend.com aweber.com
+          aweber.net getresponse.com mailgun.org infusionsoft.com acems1.com e2ma.net
+          salesforce.com dripemail2.com pardot.com klaviyo.com convertkit.com
+        ]
+
         mismatched_count = 0
 
         links.each_key do |href|
-          next if href.start_with?('mailto:') || href.include?('track') || href.include?('click.') || href.include?('list-manage.com')
+          next if tracking_domains.any? { |domain| href.include?(domain) }
           mismatched_count += 1 unless href.include?(sender_domain)
         end
 
