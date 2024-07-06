@@ -506,11 +506,17 @@ module Postal
           salesforce.com dripemail2.com pardot.com klaviyo.com convertkit.com
         ]
 
+        sender_domain_regex = /^(https?:\/\/)?(?:[^\/]+\.)?#{Regexp.escape(sender_domain)}(\/|$)/i
+        trusted_domains_pattern = TRUSTED_DOMAINS.map { |domain| Regexp.escape(domain) }.join('|')
+        trusted_domains_regex = /^(https?:\/\/)?(?:[^\/]+\.)?(#{trusted_domains_pattern})(\/|$)/i
+      
         mismatched_count = 0
 
         links.each_key do |href|
           next if tracking_domains.any? { |domain| href.include?(domain) }
-          mismatched_count += 1 unless href.include?(sender_domain)
+          unless href.match?(sender_domain_regex) || href.match?(trusted_domains_regex)
+            mismatched_count += 1
+          end
         end
 
         mismatched_count
