@@ -472,13 +472,18 @@ module Postal
 
         trusted_domains_pattern = TRUSTED_DOMAINS.map { |domain| Regexp.escape(domain) }.join('|')
         trusted_domains_regex = /^(https?:\/\/)?(www\.)?(#{trusted_domains_pattern}|([a-z0-9-]+\.)?#{trusted_domains_pattern})$/i
+        spam_file_extensions = /\.(php|cgi|html)\z/i
 
         spam_links_count = 0
         links.each do |href, labels|
           next if trusted_domains_regex.match?(href)
         
           if labels.uniq.size > 1 && !href.start_with?('mailto:')
-            spam_links_count += 1
+            if href.match?(spam_file_extensions)
+              spam_links_count += labels.size
+            else
+              spam_links_count += 1
+            end
           end
         end
           
@@ -495,7 +500,7 @@ module Postal
         mismatched_count = 0
 
         links.each_key do |href|
-          next if href.start_with?('mailto:')
+          next if href.start_with?('mailto:') || href.include?('track') || href.include?('click.') || href.include?('list-manage.com')
           mismatched_count += 1 unless href.include?(sender_domain)
         end
 
