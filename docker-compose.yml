@@ -38,4 +38,4 @@ services:
       - "11334:11334"
       - "11335:11335"
     volumes:
-      - ./rspamd:/etc/rspamd
+      - ./docker/rspamd:/etc/rspamd
