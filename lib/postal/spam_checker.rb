@@ -500,22 +500,101 @@ module Postal
         return 0 if common_domains.include?(sender_domain)
       
         tracking_domains = %w[
-          mailto: track click. list-manage.com mcsv.net rs6.net sendgrid.net sgizmo.com
-          mktoresp.com hubspot.com hubspotemail.net cmail1.com createsend.com aweber.com
-          aweber.net getresponse.com mailgun.org infusionsoft.com acems1.com e2ma.net
-          salesforce.com dripemail2.com pardot.com klaviyo.com convertkit.com
+          list-manage.com
+          mcsv.net
+          rs6.net
+          sendgrid.net
+          sendgrid.com
+          sgizmo.com
+          mktoresp.com
+          marketo.com
+          marketo.net
+          hubspot.com
+          hubspotemail.net
+          cmail1.com
+          cmail2.com
+          cmail20.com
+          createsend.com
+          aweber.com
+          aweber.net
+          getresponse.com
+          getresponse.net
+          mailgun.org
+          mailgun.com
+          infusionsoft.com
+          acems1.com
+          e2ma.net
+          e2ma.com
+          salesforce.com
+          salesforceiq.com
+          dripemail2.com
+          drip.com
+          pardot.com
+          pardot.net
+          klaviyo.com
+          klclick.com
+          convertkit-mail.com
+          convertkit.com
+          mailchimp.com
+          mailchimpapp.com
+          mandrillapp.com
+          mandrill.com
+          amazonaws.com
+          sparkpost.com
+          sparkpostmail.com
+          bnc.lt
+          omkt.co
+          relay.bm
+          feedblitz.com
+          benchmarkemail.com
+          email.benchmarkemail.com
+          emailcontact.com
+          envoydispatch.com
+          mailerlite.com
+          mltrk.io
+          ontraport.com
+          ontramail.com
+          protonmail.com
+          protonmail.ch
+          sendinblue.com
+          smtp.com
+          tracking.urbndata.com
+          us2.list-manage.com
+          us10.list-manage.com
         ]
-      
+
+        subdomain_patterns = %w[
+          click
+          track
+        ]
+
+        # Create regex pattern for tracking domains and subdomain patterns
+        tracking_domains_regex = tracking_domains.map { |domain| Regexp.escape(domain) }.join('|')
+        subdomain_patterns_regex = subdomain_patterns.map { |subdomain| "#{Regexp.escape(subdomain)}\\." }.join('|')
+
+        # Combined regex for matching full domains or subdomains with specific patterns
+        tracking_regex = /^(https?:\/\/)?(#{subdomain_patterns_regex})*[^\/]+\.(#{tracking_domains_regex})(\/|$)/i
+
+        # Regex to match any domain using the specified subdomain patterns
+        subdomain_only_regex = /^(https?:\/\/)?(#{subdomain_patterns_regex})/i
+
         trusted_domains_pattern = TRUSTED_DOMAINS.map { |domain| Regexp.escape(domain) }.join('|')
         sender_domain_regex = /^(https?:\/\/)?([^\/]+\.)*#{Regexp.escape(sender_domain)}(\/|$)/i
         trusted_domains_regex = /^(https?:\/\/)?([^\/]+\.)*(#{trusted_domains_pattern})(\/|$)/i
-      
+
+        # Create regex pattern for tracking domains and subdomain patterns
+        tracking_domains_regex = tracking_domains.map { |domain| Regexp.escape(domain) }.join('|')
+        subdomain_patterns_regex = subdomain_patterns.map { |subdomain| "#{Regexp.escape(subdomain)}[^\/]*\." }.join('|')
+
+        # Combined regex for matching full domains or subdomains with specific patterns
+        tracking_regex = /^(https?:\/\/)?(#{subdomain_patterns_regex})*[^\/]+\.(#{tracking_domains_regex})(\/|$)/i
+
         mismatched_count = 0
       
         links.each_key do |href|
-          next if tracking_domains.any? { |domain| href.include?(domain) }
-          next if href =~ sender_domain_regex || href =~ trusted_domains_regex
-      
+          next if href =~ tracking_regex || href =~ subdomain_only_regex
+          next if href =~ tracking_domains_regex
+
           mismatched_count += 1
         end
       
