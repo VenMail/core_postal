@@ -621,8 +621,8 @@ module Postal
         finance_count1 = body_lower.scan(FINANCE_REGEX1).size
 
         score = 0
-        score += 2 * bad_links
-        score += 0.5 * mismatched
+        score += 1.5 * bad_links
+        score += 0.2 * mismatched
         score += (contains_gibberish ? 1 : 0)
         score += 0.5 * marketing_count
         score += 1 * spam_count
@@ -631,7 +631,7 @@ module Postal
         score += 1.5 * finance_count
         score += 1 * finance_count1
 
-        [[score, 1].max, 10].min
+        [[score, 1].max, 20].min
       end
 
       private
