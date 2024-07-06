@@ -129,7 +129,9 @@ module Postal
     'wanker',
     'jerk off',
     'fucking idiot',
+    'sick fuck',
     'stupid bitch',
+    'stupid man',
     'motherfucking',
     'douchebag',
     'fuck off',
@@ -437,6 +439,7 @@ module Postal
     transfer | 
     approval | 
     delivery | 
+    bitcoin\s*address | 
     executive | 
     guarantee | 
     reimbursement | 
