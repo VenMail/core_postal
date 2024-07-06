@@ -450,12 +450,12 @@ module Postal
         links = {}
         document = Nokogiri::HTML(content)
         document.css('a').each do |link|
-            href = link['href']
-            label = link.text.strip
-            next if href.nil?
+          href = link['href']
+          label = link.text.strip
+          next if href.nil?
 
-            links[href] ||= []
-            links[href] << label
+          links[href] ||= []
+          links[href] << label
         end
         links
       rescue => e
@@ -472,11 +472,11 @@ module Postal
 
         spam_links_count = 0
         links.each do |href, labels|
-            next if trusted_domains_regex.match?(href)
-          
-            if labels.uniq.size > 1 && !href.start_with?('mailto:')
-              spam_links_count += 1
-            end
+          next if trusted_domains_regex.match?(href)
+        
+          if labels.uniq.size > 1 && !href.start_with?('mailto:')
+            spam_links_count += 1
+          end
         end
           
         spam_links_count
@@ -492,7 +492,8 @@ module Postal
         mismatched_count = 0
 
         links.each_key do |href|
-            mismatched_count += 1 unless href.include?(sender_domain)
+          next if href.start_with?('mailto:')
+          mismatched_count += 1 unless href.include?(sender_domain)
         end
 
         mismatched_count
@@ -519,13 +520,13 @@ module Postal
 
         score = 0
         score += 2 * bad_links
-        score += 1 * mismatched
+        score += 0.5 * mismatched
         score += (contains_gibberish ? 1 : 0)
         score += 0.5 * marketing_count
         score += 1 * spam_count
         score += 1.5 * offensive_count
         score += 2 * pornographic_count
-        score += 1 * finance_count
+        score += 1.5 * finance_count
         score += 1 * finance_count1
 
         [[score, 1].max, 10].min
