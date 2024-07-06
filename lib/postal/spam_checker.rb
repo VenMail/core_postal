@@ -4,6 +4,7 @@ require 'uri'
 module Postal
   class SpamChecker
     TRUSTED_DOMAINS = [
+    'googlemail.com',
     'gmail.com',
     'yahoo.com',
     'outlook.com',
@@ -471,7 +472,8 @@ module Postal
         return 0 unless links.is_a?(Hash)
 
         trusted_domains_pattern = TRUSTED_DOMAINS.map { |domain| Regexp.escape(domain) }.join('|')
-        trusted_domains_regex = /^(https?:\/\/)?(www\.)?(#{trusted_domains_pattern}|([a-z0-9-]+\.)?#{trusted_domains_pattern})$/i
+        trusted_domains_regex = /^(https?:\/\/)?(?:[^\/]+\.)?(#{trusted_domains_pattern})(\/|$)/i
+
         spam_file_extensions = /\.(php|cgi|html)\z/i
 
         spam_links_count = 0
@@ -494,7 +496,7 @@ module Postal
         return 0 unless sender_email =~ EMAIL_REGEX && links.is_a?(Hash)
 
         sender_domain = sender_email.split('@').last
-        common_domains = %w[gmail.com yahoo.com outlook.com hotmail.com]
+        common_domains = %w[gmail.com googlemail.com yahoo.com outlook.com hotmail.com]
         return 0 if common_domains.include?(sender_domain)
 
         tracking_domains = %w[
