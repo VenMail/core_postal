@@ -644,7 +644,7 @@ module Postal
         log "#{finance_count} offsensive count"
         log "#{finance_count1} finance1 count"
 
-        mismatchScore = 0.5 * mismatched
+        mismatchScore = (bad_links > 0 ? 0.5 : 0) * mismatched
         score = 0
         score += 1.5 * bad_links
         score += (mismatchScore > 4 ? 4 : mismatchScore)
@@ -654,7 +654,7 @@ module Postal
         score += 1.5 * offensive_count
         score += 2 * pornographic_count
         score += 1.5 * finance_count
-        score += 1 * finance_count1
+        score += (finance_count > 0 ? 0.5 : 0) * finance_count1
 
         [[score, 1].max, 20].min
       end
