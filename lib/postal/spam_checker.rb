@@ -657,9 +657,24 @@ module Postal
         score += 1.5 * finance_count
         score += (finance_count > 0 ? 0.5 : 0) * finance_count1
 
-        #likely a newsletter
-        if body_lower.length > 8000 && body_lower.include?('unsubscribe')
-          score /= 5
+        #use wordiness to determine newsletter
+        if body_lower.length > 2000 && body_lower.include?('unsubscribe')
+          length = body_lower.length
+          lower_bound = 2000.0
+          upper_bound = 12000.0
+          min_divisor = 2.0
+          max_divisor = 10.0
+          
+          # Calculate reduction factor
+          if length <= lower_bound
+            reduction_factor = min_divisor
+          elsif length >= upper_bound
+            reduction_factor = max_divisor
+          else
+            reduction_factor = min_divisor + ((max_divisor - min_divisor) * (length - lower_bound) / (upper_bound - lower_bound))
+          end
+      
+          score /= reduction_factor
         end
         
         [[score, 1].max, 20].min
