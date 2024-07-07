@@ -468,6 +468,10 @@ module Postal
         {}
       end
 
+      def log(text)
+        Postal.logger_for(:http_sender).info("[#{@log_id}] #{text}")
+      end
+
       def check_for_spam_links(links)
         return 0 unless links.is_a?(Hash)
 
