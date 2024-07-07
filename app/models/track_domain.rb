@@ -95,6 +95,32 @@ class TrackDomain < ApplicationRecord
       false
     end
   end
+
+  def resolver
+    @resolver ||= Postal.config.general.use_local_ns_for_domains? ? Resolv::DNS.new : Resolv::DNS.new(nameserver: nameservers)
+  end
+
+  def nameservers
+    @nameservers ||= get_nameservers
+  end
+
+  def get_nameservers
+    local_resolver = Resolv::DNS.new
+    ns_records = []
+    parts = name.split('.')
+    (parts.size - 1).times do |n|
+      d = parts[n, parts.size - n + 1].join('.')
+      ns_records = local_resolver.getresources(d, Resolv::DNS::Resource::IN::NS).map(&:name)
+      break unless ns_records.blank?
+    end
+    return [] if ns_records.blank?
+
+    ns_records = ns_records.map { |r| local_resolver.getresources(r, Resolv::DNS::Resource::IN::A).map(&:address) }.flatten
+    return [] if ns_records.blank?
+
+    ns_records
+  end
+
   def cloudflare_ip?(ip)
     ip = IPAddr.new(ip.to_s)
     CLOUDFLARE_IP_RANGES.any? { |range| range.include?(ip) }
