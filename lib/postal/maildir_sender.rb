@@ -42,8 +42,10 @@ module Postal
 
       filename = File.join(new_folder, "#{Time.now.to_f}.#{@log_id}")
 
-      # Write the raw message to the file
-      File.write(filename, message.raw_message)
+      # Write the raw message to the file with UTF-8 encoding
+      File.open(filename, "w:UTF-8") do |file|
+        file.write(message.raw_message.force_encoding("UTF-8"))
+      end
 
       # Check if the file was written successfully
       if File.exist?(filename)
