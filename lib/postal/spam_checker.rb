@@ -592,6 +592,8 @@ module Postal
         mismatched_count = 0
       
         links.each_key do |href|
+          next if href.nil? || href.empty?
+          next if href.start_with?('mailto:')
           next if href =~ tracking_regex || href =~ subdomain_only_regex
           next if href =~ tracking_domains_regex
 
