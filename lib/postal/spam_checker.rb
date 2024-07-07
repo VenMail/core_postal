@@ -479,8 +479,11 @@ module Postal
         spam_links_count = 0
         links.each do |href, labels|
           next if trusted_domains_regex.match?(href)
-        
-          if labels.uniq.size > 1 && !href.start_with?('mailto:')
+          next if href.nil? || href.empty?
+          next unless href.is_a?(String)
+          next if href.start_with?('mailto:')
+
+          if labels.uniq.size > 1
             if href.match?(spam_file_extensions)
               spam_links_count += labels.size
             else
@@ -488,7 +491,8 @@ module Postal
             end
           end
         end
-          
+        log "#{spam_links_count} spam links found"
+
         spam_links_count
       end
 
@@ -563,6 +567,7 @@ module Postal
           envoydispatch.com
           mailerlite.com
           mltrk.io
+          mlsend.com
           ontraport.com
           ontramail.com
           protonmail.com
@@ -607,6 +612,7 @@ module Postal
           # Compare base domains and skip if they match
           mismatched_count += 1 unless link_base_domain && link_base_domain.include?(sender_base_domain)
         end
+        log "#{mismatched_count} mismatched links found"
         
         mismatched_count
       end
@@ -626,9 +632,13 @@ module Postal
         spam_count = count_keywords(SPAM_PHRASES, body_lower)
         offensive_count = count_keywords(OFFENSIVE_PHRASES, body_lower)
         pornographic_count = count_keywords(PORNOGRAPHIC_PHRASES, body_lower)
-
+        
         finance_count = body_lower.scan(FINANCE_REGEX).size
         finance_count1 = body_lower.scan(FINANCE_REGEX1).size
+        log "#{finance_count} finance count"
+        log "#{marketing_count} marketing count"
+        log "#{finance_count} offsensive count"
+        log "#{finance_count1} finance1 count"
 
         mismatchScore = 0.5 * mismatched
         score = 0
