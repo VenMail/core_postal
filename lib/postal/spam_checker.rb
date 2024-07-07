@@ -562,47 +562,41 @@ module Postal
           us2.list-manage.com
           us10.list-manage.com
         ]
-
+      
         subdomain_patterns = %w[
           click
           track
         ]
-
+      
         # Create regex pattern for tracking domains and subdomain patterns
-        tracking_domains_regex = tracking_domains.map { |domain| Regexp.escape(domain) }.join('|')
-        subdomain_patterns_regex = subdomain_patterns.map { |subdomain| "#{Regexp.escape(subdomain)}\\." }.join('|')
-
+        tracking_domains_regex = Regexp.new(tracking_domains.map { |domain| Regexp.escape(domain) }.join('|'))
+        subdomain_patterns_regex = Regexp.new(subdomain_patterns.map { |subdomain| "#{Regexp.escape(subdomain)}\\." }.join('|'))
+      
         # Combined regex for matching full domains or subdomains with specific patterns
         tracking_regex = /^(https?:\/\/)?(#{subdomain_patterns_regex})*[^\/]+\.(#{tracking_domains_regex})(\/|$)/i
-
+      
         # Regex to match any domain using the specified subdomain patterns
         subdomain_only_regex = /^(https?:\/\/)?(#{subdomain_patterns_regex})/i
-
+      
         trusted_domains_pattern = TRUSTED_DOMAINS.map { |domain| Regexp.escape(domain) }.join('|')
         sender_domain_regex = /^(https?:\/\/)?([^\/]+\.)*#{Regexp.escape(sender_domain)}(\/|$)/i
         trusted_domains_regex = /^(https?:\/\/)?([^\/]+\.)*(#{trusted_domains_pattern})(\/|$)/i
-
-        # Create regex pattern for tracking domains and subdomain patterns
-        tracking_domains_regex = tracking_domains.map { |domain| Regexp.escape(domain) }.join('|')
-        subdomain_patterns_regex = subdomain_patterns.map { |subdomain| "#{Regexp.escape(subdomain)}[^\/]*\." }.join('|')
-
-        # Combined regex for matching full domains or subdomains with specific patterns
-        tracking_regex = /^(https?:\/\/)?(#{subdomain_patterns_regex})*[^\/]+\.(#{tracking_domains_regex})(\/|$)/i
-
+      
         mismatched_count = 0
       
         links.each_key do |href|
           next if href.nil? || href.empty?
+          next unless href.is_a?(String)
           next if href.start_with?('mailto:')
           next if href =~ tracking_regex || href =~ subdomain_only_regex
           next if href =~ tracking_domains_regex
-
+      
           mismatched_count += 1
         end
       
         mismatched_count
       end
-      
+            
       def classify_email(sender_email, parsed)
         links = extract_links(parsed)
         bad_links = check_for_spam_links(links)
