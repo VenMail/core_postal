@@ -492,13 +492,24 @@ module Postal
         spam_links_count
       end
 
+      def extract_base_domain(domain)
+        # Extract the base domain using regex
+        domain.match(/(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/).to_s
+      end
+      
+      def extract_href_base_domain(href)
+        # Extracting base domain from href using regex
+        href.match(/^(?:https?:\/\/)?(?:[^@\/\n]+@)?(?:www\.)?([^:\/?\n]+)/im)[1] rescue nil
+      end
+      
       def check_for_mismatched_sender(sender_email, links)
         return 0 unless sender_email =~ EMAIL_REGEX && links.is_a?(Hash)
-      
+        
         sender_domain = sender_email.split('@').last
+        sender_base_domain = extract_base_domain(sender_domain)
         common_domains = %w[gmail.com googlemail.com yahoo.com outlook.com hotmail.com]
         return 0 if common_domains.include?(sender_domain)
-      
+        
         tracking_domains = %w[
           list-manage.com
           mcsv.net
@@ -562,41 +573,44 @@ module Postal
           us2.list-manage.com
           us10.list-manage.com
         ]
-      
+        
         subdomain_patterns = %w[
           click
           track
         ]
-      
+        
         # Create regex pattern for tracking domains and subdomain patterns
         tracking_domains_regex = Regexp.new(tracking_domains.map { |domain| Regexp.escape(domain) }.join('|'))
         subdomain_patterns_regex = Regexp.new(subdomain_patterns.map { |subdomain| "#{Regexp.escape(subdomain)}\\." }.join('|'))
-      
+        
         # Combined regex for matching full domains or subdomains with specific patterns
         tracking_regex = /^(https?:\/\/)?(#{subdomain_patterns_regex})*[^\/]+\.(#{tracking_domains_regex})(\/|$)/i
-      
+        
         # Regex to match any domain using the specified subdomain patterns
         subdomain_only_regex = /^(https?:\/\/)?(#{subdomain_patterns_regex})/i
-      
+        
         trusted_domains_pattern = TRUSTED_DOMAINS.map { |domain| Regexp.escape(domain) }.join('|')
         sender_domain_regex = /^(https?:\/\/)?([^\/]+\.)*#{Regexp.escape(sender_domain)}(\/|$)/i
         trusted_domains_regex = /^(https?:\/\/)?([^\/]+\.)*(#{trusted_domains_pattern})(\/|$)/i
-      
+        
         mismatched_count = 0
-      
+        
         links.each_key do |href|
           next if href.nil? || href.empty?
           next unless href.is_a?(String)
           next if href.start_with?('mailto:')
           next if href =~ tracking_regex || href =~ subdomain_only_regex
           next if href =~ tracking_domains_regex
-      
-          mismatched_count += 1
+        
+          link_base_domain = extract_href_base_domain(href)
+        
+          # Compare base domains and skip if they match
+          mismatched_count += 1 unless link_base_domain && link_base_domain.include?(sender_base_domain)
         end
-      
+        
         mismatched_count
       end
-            
+                  
       def classify_email(sender_email, parsed)
         links = extract_links(parsed)
         bad_links = check_for_spam_links(links)
@@ -616,9 +630,10 @@ module Postal
         finance_count = body_lower.scan(FINANCE_REGEX).size
         finance_count1 = body_lower.scan(FINANCE_REGEX1).size
 
+        mismatchScore = 0.5 * mismatched
         score = 0
         score += 1.5 * bad_links
-        score += 0.2 * mismatched
+        score += (mismatchScore > 4 ? 4 : mismatchScore)
         score += (contains_gibberish ? 1 : 0)
         score += 0.5 * marketing_count
         score += 1 * spam_count
