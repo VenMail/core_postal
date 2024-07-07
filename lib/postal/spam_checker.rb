@@ -536,6 +536,7 @@ module Postal
           createsend.com
           aweber.com
           aweber.net
+          awstrack.me
           getresponse.com
           getresponse.net
           mailgun.org
@@ -656,6 +657,11 @@ module Postal
         score += 1.5 * finance_count
         score += (finance_count > 0 ? 0.5 : 0) * finance_count1
 
+        #likely a newsletter
+        if body_lower.length > 8000 && body_lower.include?('unsubscribe')
+          score /= 5
+        end
+        
         [[score, 1].max, 20].min
       end
 
