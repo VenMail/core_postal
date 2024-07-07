@@ -10,7 +10,7 @@ module Postal
       def inspect_message(inspection)
         raw_message = inspection.message.raw_message
 
-        spam_score = SpamChecker.classify_email(inspection.message.mail_from, raw_message)
+        spam_score = SpamChecker.classify_email(raw_message.mail_from, raw_message)
         if spam_score > 5 # Use 5 for now, if above 5 we know for sure
           inspection.spam_checks << SpamCheck.new("V_SPAM", spam_score, "Message classified as spam")
           return
