@@ -502,7 +502,7 @@ module Postal
 
       def extract_base_domain(domain)
         # Extract the base domain using regex
-        domain.match(/(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/).to_s
+        domain.match(/(?:[a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/).to_s
       end
       
       def extract_href_base_domain(href)
