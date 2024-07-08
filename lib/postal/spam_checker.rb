@@ -364,11 +364,7 @@ module Postal
     ].freeze
 
     FINANCE_REGEX = /\b(?: 
-    ambassador | 
-    minister | 
-    president | 
     prince | 
-    director | 
     royal | 
     am\s*offering\s*you |
     diplomatic | 
@@ -416,7 +412,7 @@ module Postal
     legal\s*claim | 
     cash\s*prize | 
     benefactor | 
-    fortune | 
+    a\s*fortune | 
     inherit | 
     heritage | 
     transfer\s*of\s*funds | 
@@ -437,6 +433,10 @@ module Postal
     reward | 
     donation | 
     trust | 
+    director | 
+    ambassador | 
+    minister | 
+    president | 
     transfer | 
     approval | 
     delivery | 
@@ -642,7 +642,7 @@ module Postal
         finance_count1 = body_lower.scan(FINANCE_REGEX1).size
         log "#{finance_count} finance count"
         log "#{marketing_count} marketing count"
-        log "#{finance_count} offsensive count"
+        log "#{offensive_count} offsensive count"
         log "#{finance_count1} finance1 count"
 
         mismatchScore = (bad_links > 0 ? 0.5 : 0) * mismatched

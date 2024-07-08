@@ -11,9 +11,13 @@ module Postal
         raw_message = inspection.message.raw_message
 
         spam_score = SpamChecker.classify_email(inspection.message.mail_from, raw_message)
-        if spam_score > 5 # Use 5 for now, if above 5 we know for sure
-          inspection.spam_checks << SpamCheck.new("V_SPAM", spam_score, "Message classified as spam")
-          return
+        if spam_score > 5
+          if spam_score > 8
+            inspection.spam_checks << SpamCheck.new("V_SPAM", spam_score, "Message classified as spam")
+            return
+          else
+            inspection.spam_checks << SpamCheck.new("V_SPAM", spam_score, "Venmail pre-classifier spam score")
+          end
         end
 
         response = request(inspection.message, inspection.scope)
