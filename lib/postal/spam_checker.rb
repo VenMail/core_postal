@@ -8,13 +8,19 @@ module Postal
     'gmail.com',
     'yahoo.com',
     'outlook.com',
+    'live.com',
     'hotmail.com',
     'google.com',
     'facebook.com',
+    'fb.me',
     'twitter.com',
+    'x.com',
+    't.co',
     'linkedin.com',
     'instagram.com',
+    'instagr.am',
     'youtube.com'
+    'youtu.be'
     ].freeze
 
     MARKETING_KEYWORDS = [
