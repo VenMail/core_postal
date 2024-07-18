@@ -687,8 +687,10 @@ module Postal
       end
 
       def count_keywords(keywords, body)
-        keywords.sum { |keyword| body.scan(keyword).size }
-      end
+        keywords.sum do |keyword|
+          body.scan(/#{Regexp.escape(keyword)}/i).uniq.size
+        end
+      end      
     end
   end
 end
