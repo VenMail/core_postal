@@ -643,9 +643,13 @@ module Postal
         spam_count = count_keywords(SPAM_PHRASES, body_lower)
         offensive_count = count_keywords(OFFENSIVE_PHRASES, body_lower)
         pornographic_count = count_keywords(PORNOGRAPHIC_PHRASES, body_lower)
+
+        finance_matches = body_lower.scan(FINANCE_REGEX).uniq
+        finance_count = finance_matches.size
+
+        finance_matches1 = body_lower.scan(FINANCE_REGEX1).uniq
+        finance_count1 = finance_matches1.size
         
-        finance_count = body_lower.scan(FINANCE_REGEX).size
-        finance_count1 = body_lower.scan(FINANCE_REGEX1).size
         log "#{finance_count} finance count"
         log "#{marketing_count} marketing count"
         log "#{offensive_count} offsensive count"
