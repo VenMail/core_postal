@@ -230,7 +230,14 @@ class UnqueueMessageJob < Postal::Job
                     when HTTPEndpoint
                       sender = cached_sender(Postal::HTTPSender, queued_message.message.endpoint)
                     when AddressEndpoint
-                      sender = cached_sender(Postal::SMTPSender, queued_message.message.endpoint.domain, nil, :force_rcpt_to => queued_message.message.endpoint.address)
+                      if queued_message.message.spam_score >= Postal.config.general.address_spam_failure_threshold
+                        log "#{log_prefix} Message has a spam score higher than allowed for address endpoints. Hard failing."
+                        queued_message.message.create_delivery('HardFail', :details => "Message's spam score is higher than the failure threshold for this server. Threshold is currently #{Postal.config.general.address_spam_failure_threshold ?? 5}.")
+                        queued_message.destroy
+                        next
+                      else
+                        sender = cached_sender(Postal::SMTPSender, queued_message.message.endpoint.domain, nil, :force_rcpt_to => queued_message.message.endpoint.address)
+                      end
                     else
                       log "#{log_prefix} Invalid endpoint for route (#{queued_message.message.endpoint_type})"
                       queued_message.message.create_delivery('HardFail', :details => "Invalid endpoint for route.")
