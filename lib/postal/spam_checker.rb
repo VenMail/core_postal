@@ -19,7 +19,7 @@ module Postal
     'linkedin.com',
     'instagram.com',
     'instagr.am',
-    'youtube.com'
+    'youtube.com',
     'youtu.be'
     ].freeze
 
