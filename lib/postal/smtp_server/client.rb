@@ -23,7 +23,207 @@ module Postal
         transaction_reset
       end
 
-      # [Previous methods unchanged...]
+      def check_ip_address
+        if @ip_address && Postal.config.smtp_server.log_exclude_ips && @ip_address =~ Regexp.new(Postal.config.smtp_server.log_exclude_ips)
+          @logging_enabled = false
+        end
+      end
+
+      def transaction_reset
+        @recipients = []
+        @mail_from = nil
+        @data = nil
+        @headers = nil
+      end
+
+      def id
+        @id ||= Nifty::Utils::RandomString.generate(length: 6).upcase
+      end
+
+      def handle(data)
+        return proxy(data) if @state == :preauth
+
+        log "\e[32m<= #{sanitize_input_for_log(data.strip)}\e[0m"
+        if @proc
+          @proc.call(data)
+
+        else
+          handle_command(data)
+        end
+      end
+
+      def sanitize_input_for_log(data)
+        if @password_expected_next
+          @password_expected_next = false
+          return LOG_REDACTION_STRING if data =~ /\A[a-z0-9]{3,}=*\z/i
+        end
+
+        data = data.dup
+        data.gsub!(/(.*AUTH \w+) (.*)\z/i) { "#{::Regexp.last_match(1)} #{LOG_REDACTION_STRING}" }
+        data
+      end
+
+      def finished?
+        @finished || false
+      end
+
+      def start_tls?
+        @start_tls || false
+      end
+
+      attr_writer :start_tls
+
+      def handle_command(data)
+        case data
+        when /^QUIT/i           then quit
+        when /^STARTTLS/i       then starttls
+        when /^EHLO/i           then ehlo(data)
+        when /^HELO/i           then helo(data)
+        when /^RSET/i           then rset
+        when /^NOOP/i           then noop
+        when /^AUTH PLAIN/i     then auth_plain(data)
+        when /^AUTH LOGIN/i     then auth_login(data)
+        when /^AUTH CRAM-MD5/i  then auth_cram_md5(data)
+        when /^MAIL FROM/i      then mail_from(data)
+        when /^RCPT TO/i        then rcpt_to(data)
+        when /^DATA/i           then data(data)
+        else
+          '502 Invalid/unsupported command'
+        end
+      end
+
+      def log(text)
+        return false unless @logging_enabled
+
+        Postal.logger_for(:smtp_server).debug "[#{id}] #{text}"
+      end
+
+      private
+
+      def resolve_hostname
+        Resolv::DNS.open do |dns|
+          dns.timeouts = [10, 5]
+          @hostname = begin
+            dns.getname(@ip_address)
+          rescue StandardError
+            @ip_address
+          end
+        end
+      end
+
+      def proxy(data)
+        if m = data.match(/\APROXY (.+) (.+) (.+) (.+) (.+)\z/)
+          @ip_address = m[2]
+          check_ip_address
+          @state = :welcome
+          log "\e[35m   Client identified as #{@ip_address}\e[0m"
+          "220 #{Postal.config.dns.smtp_server_hostname} Venmail Core/#{id}"
+        else
+          @finished = true
+          '502 Proxy Error'
+        end
+      end
+
+      def quit
+        @finished = true
+        '221 Closing Connection'
+      end
+
+      def starttls
+        if Postal.config.smtp_server.tls_enabled?
+          @start_tls = true
+          @tls = true
+          '220 Ready to start TLS'
+        else
+          '502 TLS not available'
+        end
+      end
+
+      def ehlo(data)
+        resolve_hostname
+        @helo_name = data.strip.split(' ', 2)[1]
+        transaction_reset
+        @state = :welcomed
+        ['250-My capabilities are', Postal.config.smtp_server.tls_enabled? && !@tls ? '250-STARTTLS' : nil,
+         '250 AUTH CRAM-MD5 PLAIN LOGIN']
+      end
+
+      def helo(data)
+        resolve_hostname
+        @helo_name = data.strip.split(' ', 2)[1]
+        transaction_reset
+        @state = :welcomed
+        "250 #{Postal.config.dns.smtp_server_hostname}"
+      end
+
+      def rset
+        transaction_reset
+        @state = :welcomed
+        '250 OK'
+      end
+
+      def noop
+        '250 OK'
+      end
+
+      def auth_plain(data)
+        handler = proc do |data|
+          @proc = nil
+          data = Base64.decode64(data)
+          parts = data.split("\0")
+          username = parts[-2]
+          password = parts[-1]
+          next '535 Authentication failed - protocol error' unless username && password
+
+          authenticate(username, password)
+        end
+
+        data = data.gsub(/AUTH PLAIN ?/i, '')
+        if data.strip == ''
+          @proc = handler
+          @password_expected_next = true
+          '334'
+        else
+          handler.call(data)
+        end
+      end
+
+      def auth_login(data)
+        password_handler = proc do |data|
+          @proc = nil
+          password = Base64.decode64(data)
+          authenticate(@username_buffer, password)
+        end
+
+        username_handler = proc do |data|
+          @proc = password_handler
+          @username_buffer = Base64.decode64(data)
+          @password_expected_next = true
+          '334 UGFzc3dvcmQ6' # "Password:"
+        end
+
+        data = data.gsub(/AUTH LOGIN ?/i, '')
+        if data.strip == ''
+          @proc = username_handler
+          '334 VXNlcm5hbWU6' # "Username:"
+        else
+          username_handler.call(data)
+        end
+      end
+
+      def authenticate(username, password)
+        # Check if the provided key (password) is a valid credential key
+        if @credential = Credential.where(type: 'SMTP', key: password).first
+          @credential.use
+          "235 Granted for #{@credential.server.organization.permalink}/#{@credential.server.permalink}"
+        elsif valid_user_authentication?(username, password)
+          # If not a valid credential key, treat it as regular username and password authentication
+          "235 Granted for #{username}"
+        else
+          log "\e[33m   WARN: AUTH failure for #{@ip_address}\e[0m"
+          '535 Invalid credential'
+        end
+      end
 
       def valid_user_authentication?(email, input_password)
         # Extract domain from email
@@ -65,6 +265,51 @@ module Postal
         end
 
         result
+      end
+
+      def auth_cram_md5(_data)
+        challenge = Digest::SHA1.hexdigest(Time.now.to_i.to_s + rand(100_000).to_s)
+        challenge = "<#{challenge[0, 20]}@#{Postal.config.dns.smtp_server_hostname}>"
+
+        handler = proc do |data|
+          @proc = nil
+          username, password = Base64.decode64(data).split(' ', 2).map { |a| a.chomp }
+          org_permlink, server_permalink = username.split(%r{[/_]}, 2)
+          server = ::Server.includes(:organization).where(organizations: { permalink: org_permlink },
+                                                          permalink: server_permalink).first
+          next '535 Denied' if server.nil?
+
+          grant = nil
+          server.credentials.where(type: 'SMTP').each do |credential|
+            correct_response = OpenSSL::HMAC.hexdigest(CRAM_MD5_DIGEST, credential.key, challenge)
+            next unless password == correct_response
+
+            @credential = credential
+            @credential.use
+            grant = "235 Granted for #{credential.server.organization.permalink}/#{credential.server.permalink}"
+            break
+          end
+          grant || '535 Denied'
+        end
+
+        @proc = handler
+        '334 ' + Base64.encode64(challenge).gsub(/[\r\n]/, '')
+      end
+
+      def mail_from(data)
+        return '503 EHLO/HELO first please' unless in_state(:welcomed, :mail_from_received)
+
+        @state = :mail_from_received
+        transaction_reset
+        mail_from_line = if data =~ /AUTH=/
+                           # Discard AUTH= parameter and anything that follows.
+                           # We don't need this parameter as we don't trust any client to set it
+                           data.sub(/ *AUTH=.*/, '')
+                         else
+                           data
+                         end
+        @mail_from = mail_from_line.gsub(/MAIL FROM\s*:\s*/i, '').gsub(/.*</, '').gsub(/>.*/, '').strip
+        '250 OK'
       end
 
       def rcpt_to(data)
