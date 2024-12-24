@@ -122,7 +122,9 @@ module Postal
       if @smtp_client
         result.secure = @smtp_client.secure_socket?
       end
-
+      log "Debug: force_rcpt_to = #{force_rcpt_to.inspect}"
+      log "Debug: options force_rcpt_to = #{@options[:force_rcpt_to].inspect}"
+      log "Debug: message.rcpt_to = #{message.rcpt_to.inspect}"
       begin
         if message.bounce == 1
           mail_from = ""

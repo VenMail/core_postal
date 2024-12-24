@@ -31,7 +31,7 @@ class UnqueueMessageJob < Postal::Job
           log_prefix = "[#{queued_message.server_id}::#{queued_message.message_id} #{queued_message.id}]"
           begin
             log "#{log_prefix} Got queued message with exclusive lock"
-
+            log "#{log_prefix} Message properties: rcpt_to=#{queued_message.message.rcpt_to.inspect}"
             begin
               queued_message.message
             rescue Postal::MessageDB::Message::NotFound
@@ -470,6 +470,7 @@ class UnqueueMessageJob < Postal::Job
 
   def cached_sender(klass, *args)
     @sender ||= begin
+      log "Creating sender for #{klass} with args: #{args.inspect}"
       sender = klass.new(*args)
       sender.start
       sender
