@@ -133,6 +133,10 @@ module Postal
         else
           mail_from = "#{message.server.token}@#{Postal.config.dns.return_path}"
         end
+        log "Debug: mail_from = #{mail_from.inspect}"
+        log "Debug: raw_message first 100 chars = #{raw_message[0..100].inspect}"
+        log "Debug: smtp_client class = #{@smtp_client.class}"
+        log "Debug: smtp_client methods = #{@smtp_client.methods - Object.methods}"    
         raw_message = "Resent-Sender: #{mail_from}\r\n" + message.raw_message
         tries = 0
         begin
@@ -150,6 +154,8 @@ module Postal
             @smtp_client.rset_errors
             rcpt_to = force_rcpt_to || @options[:force_rcpt_to] || message.rcpt_to
             log "Sending message #{message.server.id}::#{message.id} to #{rcpt_to}"
+            log "Debug: Final rcpt_to value = #{rcpt_to.inspect}"
+            log "Debug: rcpt_to array = #{[rcpt_to].inspect}"
             smtp_result = @smtp_client.send_message(raw_message, mail_from, [rcpt_to])
           end
         rescue Errno::ECONNRESET, Errno::EPIPE, OpenSSL::SSL::SSLError
