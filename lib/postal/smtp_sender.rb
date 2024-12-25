@@ -133,11 +133,23 @@ module Postal
         else
           mail_from = "#{message.server.token}@#{Postal.config.dns.return_path}"
         end
+          # Explicitly construct and validate recipient
+        rcpt_to = force_rcpt_to || @options[:force_rcpt_to] || message.rcpt_to
+        unless rcpt_to && rcpt_to.is_a?(String) && !rcpt_to.strip.empty?
+          log "Error: Invalid recipient address: #{rcpt_to.inspect}"
+          raise ArgumentError, "Invalid recipient address"
+        end
+
+        # Construct recipients array
+        recipients = [rcpt_to.strip]
+        
+        log "Debug: Constructed mail_from: #{mail_from.inspect}"
+        log "Debug: Constructed recipients: #{recipients.inspect}"
+        raw_message = "Resent-Sender: #{mail_from}\r\n" + message.raw_message
         log "Debug: mail_from = #{mail_from.inspect}"
         log "Debug: raw_message first 100 chars = #{raw_message[0..100].inspect}"
         log "Debug: smtp_client class = #{@smtp_client.class}"
         log "Debug: smtp_client methods = #{@smtp_client.methods - Object.methods}"    
-        raw_message = "Resent-Sender: #{mail_from}\r\n" + message.raw_message
         tries = 0
         begin
           if @smtp_client.nil?
