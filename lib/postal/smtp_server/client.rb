@@ -419,8 +419,8 @@ module Postal
               @credential.use
               rcpt_to(data)
             else
-              parts = @mail_from.rpartition('@')
-              domain = parts[1]
+              parts = @mail_from.rpartition('@nia.')
+              domain = parts[2]
               dm = Domain.includes(:owner).where(name: domain).first
               log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
               if dm && (server = dm.owner)
