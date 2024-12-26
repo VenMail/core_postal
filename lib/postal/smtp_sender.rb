@@ -175,9 +175,9 @@ module Postal
             end
             
             # Send the message data
-            @smtp_client.data(raw_message + "\r\n.\r\n")
+            smtp_result = @smtp_client.data(raw_message + "\r\n.\r\n")
             
-            smtp_result = "Message accepted for delivery"
+            # smtp_result = "Message accepted for delivery"
             # rcpt_to = force_rcpt_to || @options[:force_rcpt_to] || message.rcpt_to
             # log "Sending message #{message.server.id}::#{message.id} to #{rcpt_to}"
             # log "Debug: Final rcpt_to value = #{rcpt_to.inspect}"
@@ -201,7 +201,7 @@ module Postal
         log "Message sent ##{message.id} to #{destination_host_description} for #{rcpt_to}"
 
       rescue Errno::ECONNRESET, Errno::EPIPE, OpenSSL::SSL::SSLError => e
-        log "Connection error: #{e.class}: #{e.message}"
+          log "Connection error: #{e.class}: #{e.message}"
         if (tries += 1) < 2
           reconnect
           retry

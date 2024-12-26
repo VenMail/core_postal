@@ -420,7 +420,15 @@ module Postal
               @credential.use
               rcpt_to(data)
             else
-              '530 Authentication required'
+              dm = Domain.includes(:owner).where(name: domain).first
+              log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
+              server = dm&.owner
+              @credential = Credential::where(server_id: serevr.id).first
+              if @credential
+                @credential.use
+                rcpt_to(data)
+              else
+                '530 Authentication required'
             end
           end
 
