@@ -414,20 +414,24 @@ module Postal
               c.ipaddr&.prefix || 0
             }.reverse.find { |credential|
               credential.ipaddr.include?(@ip_address)
-            }
-
+            }          
             if @credential
               @credential.use
               rcpt_to(data)
             else
               dm = Domain.includes(:owner).where(name: domain).first
               log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
-              server = dm&.owner
-              @credential = Credential::where(server_id: serevr.id).first
-              if @credential
-                @credential.use
-                rcpt_to(data)
+              if dm && (server = dm.owner)
+                @credential = Credential.where(server_id: server.id).first
+                if @credential
+                  @credential.use
+                  rcpt_to(data)
+                else
+                  log "No credential found for server #{server.id}"
+                  '530 Authentication required'
+                end
               else
+                log "Domain not found or no associated server"
                 '530 Authentication required'
               end
             end
