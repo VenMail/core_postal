@@ -429,6 +429,7 @@ module Postal
                 rcpt_to(data)
               else
                 '530 Authentication required'
+              end
             end
           end
 
