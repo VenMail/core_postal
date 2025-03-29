@@ -316,7 +316,7 @@ module Postal
         return '503 EHLO/HELO and MAIL FROM first please' unless in_state(:mail_from_received, :rcpt_to_received)
 
         begin
-          # Extract RCPT TO address
+          # Extract RCPT TO address and clean it
           rcpt_to = data.gsub(/RCPT TO\s*:\s*/i, '').gsub(/.*</, '').gsub(/>.*/, '').strip
           
           # If empty or invalid, try alternate extraction
@@ -328,6 +328,9 @@ module Postal
               rcpt_to = data.scan(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/).first
             end
           end
+
+          # Clean the email address of quotations, commas, and trailing periods
+          rcpt_to = rcpt_to.gsub(/["']+/, '').gsub(/[,;]+/, '').sub(/\.$/, '').strip if rcpt_to
 
           return '501 RCPT TO should not be empty' if rcpt_to.blank?
 
@@ -419,9 +422,14 @@ module Postal
               @credential.use
               rcpt_to(data)
             else
-              parts = @mail_from.rpartition('@nia.')
-              domain = parts[2]
+              parts = @mail_from.rpartition('@')
+              domain = parts[1]
               dm = Domain.includes(:owner).where(name: domain).first
+              if not dm:
+                parts = @mail_from.rpartition('@nia.')
+                domain = parts[2]
+                dm = Domain.includes(:owner).where(name: domain).first
+              end
               log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
               if dm && (server = dm.owner)
                 @credential = Credential.where(server_id: server.id).first

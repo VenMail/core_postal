@@ -30,7 +30,7 @@ main_db:
   username: postal
   password:
   database: postal
-  pool_size: 5
+  pool_size: 32
 
 logging:
   stdout: false
