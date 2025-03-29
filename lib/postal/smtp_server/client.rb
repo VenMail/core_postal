@@ -329,8 +329,8 @@ module Postal
             end
           end
 
-          # Clean the email address of quotations, commas, and trailing periods
-          rcpt_to = rcpt_to.gsub(/["']+/, '').gsub(/[,;]+/, '').sub(/\.$/, '').strip if rcpt_to
+          # Clean the email address of starting/trailing apostrophes, commas, and trailing periods
+          rcpt_to = rcpt_to.sub(/^['"]+/, '').sub(/['"]+$/, '').gsub(/[,;]+/, '').sub(/\.$/, '').strip if rcpt_to
 
           return '501 RCPT TO should not be empty' if rcpt_to.blank?
 
