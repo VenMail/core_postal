@@ -344,7 +344,8 @@ module Postal
 
           uname, tag = uname.split('+', 2)
 
-          if domain == Postal.config.dns.return_path || domain =~ /\A#{Regexp.escape(Postal.config.dns.custom_return_path_prefix)}\./
+          # if domain == Postal.config.dns.return_path || domain =~ /\A#{Regexp.escape(Postal.config.dns.custom_return_path_prefix)}\./
+          if !Postal.config.smtp_server.disable_bounce_return_path && (domain == Postal.config.dns.return_path || domain =~ /\A#{Regexp.escape(Postal.config.dns.custom_return_path_prefix)}\./)
             # Original return path handling...
             @state = :rcpt_to_received
             if server = ::Server.where(token: uname).first

@@ -126,8 +126,8 @@ module Postal
       log "Debug: options force_rcpt_to = #{@options[:force_rcpt_to].inspect}"
       log "Debug: message.rcpt_to = #{message.rcpt_to.inspect}"
       begin
-        if message.bounce == 1
-          mail_from = ""
+        if Postal.config.smtp_server.disable_bounce_return_path
+          mail_from = message.bounce == 1 ? "" : message.mail_from
         elsif message.domain.return_path_status == 'OK'
           mail_from = "#{message.server.token}@#{message.domain.return_path_domain}"
         else

@@ -73,6 +73,7 @@ smtp_server:
   ssl_version: SSLv23
   proxy_protocol: false
   log_connect: true
+  disable_bounce_return_path: true
   strip_received_headers: false
   max_message_size: 14 # size in Megabytes
 
