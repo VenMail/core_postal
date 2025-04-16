@@ -12,14 +12,14 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v2
       - name: Run tests
         run: make ci-test
 
   build-latest:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: [test]
     if: github.ref == 'refs/heads/main'
     steps:
@@ -41,7 +41,7 @@ jobs:
         run: make docker-release
 
   build-release:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: [test]
     if: contains(github.ref, 'refs/tags/')
     steps:
