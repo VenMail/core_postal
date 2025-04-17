@@ -147,15 +147,21 @@ module Postal
         log "Debug: - From: #{mail_from.inspect}"
         log "Debug: - To: #{recipients.inspect}"
         log "Debug: mail_from = #{mail_from.inspect}"
-        raw_message = if Postal.config.smtp_server.disable_bounce_return_path
-          # Don't add Resent-Sender if it already exists to prevent loops
-          if message.raw_message.include?("Resent-Sender:")
+        raw_message = if Postal.config.smtp_server.disable_bounce_return_path && message.bounce == 1
+          # For bounce messages, don't modify at all when this option is enabled
+          message.raw_message
+        elsif Postal.config.smtp_server.disable_bounce_return_path
+          # Check headers properly for non-bounce messages
+          headers, body = extract_headers_and_body(message.raw_message)
+          
+          # Only add Resent-Sender if no existing Resent headers exist
+          if headers.any? { |h| h.start_with?('Resent-') }
             message.raw_message
           else
             "Resent-Sender: #{mail_from}\r\n#{message.raw_message}"
           end
         else
-          message.raw_message 
+          message.raw_message
         end
         log "Debug: raw_message first 100 chars = #{raw_message[0..100].inspect}"
         log "Debug: smtp_client class = #{@smtp_client.class}"
@@ -327,6 +333,13 @@ module Postal
         end
       end.compact
       hosts.empty? ? nil : hosts
+    end
+
+    def extract_headers_and_body(raw_message)
+      parts = raw_message.split(/\r?\n\r?\n/, 2)
+      headers = parts[0].split(/\r?\n/)
+      body = parts.size > 1 ? parts[1] : ""
+      [headers, body]
     end
 
   end
