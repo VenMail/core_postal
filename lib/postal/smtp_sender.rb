@@ -142,12 +142,21 @@ module Postal
 
         # Construct recipients array
         recipients = [rcpt_to.strip]
-        
+
         log "Debug: About to send with:"
         log "Debug: - From: #{mail_from.inspect}"
         log "Debug: - To: #{recipients.inspect}"
-        raw_message = "Resent-Sender: #{mail_from}\r\n" + message.raw_message
         log "Debug: mail_from = #{mail_from.inspect}"
+        raw_message = if Postal.config.smtp_server.disable_bounce_return_path
+          # Don't add Resent-Sender if it already exists to prevent loops
+          if message.raw_message.include?("Resent-Sender:")
+            message.raw_message
+          else
+            "Resent-Sender: #{mail_from}\r\n#{message.raw_message}"
+          end
+        else
+          message.raw_message 
+        end
         log "Debug: raw_message first 100 chars = #{raw_message[0..100].inspect}"
         log "Debug: smtp_client class = #{@smtp_client.class}"
         log "Debug: smtp_client methods = #{@smtp_client.methods - Object.methods}"    
