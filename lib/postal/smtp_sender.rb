@@ -129,7 +129,18 @@ module Postal
           raise ArgumentError, "Invalid recipient address"
         end
         recipients = [rcpt_to.strip]
-        raw_message = message.raw_message
+        raw_message = if Postal.config.smtp_server.disable_bounce_return_path && message.bounce == 1
+          message.raw_message
+        else
+          headers, body = extract_headers_and_body(message.raw_message)
+
+          if headers.any? { |h| h.start_with?('Resent-') }
+            message.raw_message
+          else
+            "Resent-Sender: #{mail_from}\r\n#{message.raw_message}"            
+          end
+          
+        end
     
         tries = 0
         begin
