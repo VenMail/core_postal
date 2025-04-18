@@ -114,64 +114,27 @@ module Postal
       result = SendResult.new
       result.log_id = @log_id
       if @smtp_client && !@smtp_client.started?
-        # For some reason we had an SMTP connection but it's no longer connected.
-        # Make a new one.
         start
       end
-
+    
       if @smtp_client
         result.secure = @smtp_client.secure_socket?
       end
-      log "Debug: force_rcpt_to = #{force_rcpt_to.inspect}"
-      log "Debug: options force_rcpt_to = #{@options[:force_rcpt_to].inspect}"
-      log "Debug: message.rcpt_to = #{message.rcpt_to.inspect}"
+    
       begin
-        if Postal.config.smtp_server.disable_bounce_return_path
-          mail_from = message.bounce == 1 ? "" : message.mail_from
-        elsif message.domain.return_path_status == 'OK'
-          mail_from = "#{message.server.token}@#{message.domain.return_path_domain}"
-        else
-          mail_from = "#{message.server.token}@#{Postal.config.dns.return_path}"
-        end
-          # Explicitly construct and validate recipient
+        mail_from = Postal.config.smtp_server.disable_bounce_return_path && message.bounce == 1 ? "" : message.mail_from
         rcpt_to = force_rcpt_to || @options[:force_rcpt_to] || message.rcpt_to
         unless rcpt_to && rcpt_to.is_a?(String) && !rcpt_to.strip.empty?
           log "Error: Invalid recipient address: #{rcpt_to.inspect}"
           raise ArgumentError, "Invalid recipient address"
         end
-
-        # Construct recipients array
         recipients = [rcpt_to.strip]
-
-        log "Debug: About to send with:"
-        log "Debug: - From: #{mail_from.inspect}"
-        log "Debug: - To: #{recipients.inspect}"
-        log "Debug: mail_from = #{mail_from.inspect}"
-        raw_message = if Postal.config.smtp_server.disable_bounce_return_path && message.bounce == 1
-          # For bounce messages, don't modify at all when this option is enabled
-          message.raw_message
-        elsif Postal.config.smtp_server.disable_bounce_return_path
-          # Check headers properly for non-bounce messages
-          headers, body = extract_headers_and_body(message.raw_message)
-          
-          # Only add Resent-Sender if no existing Resent headers exist
-          if headers.any? { |h| h.start_with?('Resent-') }
-            message.raw_message
-          else
-            "Resent-Sender: #{mail_from}\r\n#{message.raw_message}"
-          end
-        else
-          message.raw_message
-        end
-        log "Debug: raw_message first 100 chars = #{raw_message[0..100].inspect}"
-        log "Debug: smtp_client class = #{@smtp_client.class}"
-        log "Debug: smtp_client methods = #{@smtp_client.methods - Object.methods}"    
+        raw_message = message.raw_message
+    
         tries = 0
         begin
           if @smtp_client.nil?
             log "-> No SMTP server available for #{@domain}"
-            log "-> Hostnames: #{@hostnames.inspect}"
-            log "-> Errors: #{@connection_errors.inspect}"
             result.type = 'SoftFail'
             result.retry = true
             result.details = "No SMTP servers were available for #{@domain}. Tried #{@hostnames.to_sentence}"
@@ -181,23 +144,11 @@ module Postal
           else
             @smtp_client.rset_errors
             log "Sending message #{message.server.id}::#{message.id} using direct SMTP commands"
-        
-            # Use lower-level SMTP commands
             @smtp_client.mailfrom(mail_from)
             recipients.each do |recipient|
-              log "Debug: Sending RCPT TO command for #{recipient}"
               @smtp_client.rcptto(recipient)
             end
-            
-            # Send the message data
             smtp_result = @smtp_client.data(raw_message + "\r\n.\r\n")
-            
-            # smtp_result = "Message accepted for delivery"
-            # rcpt_to = force_rcpt_to || @options[:force_rcpt_to] || message.rcpt_to
-            # log "Sending message #{message.server.id}::#{message.id} to #{rcpt_to}"
-            # log "Debug: Final rcpt_to value = #{rcpt_to.inspect}"
-            # log "Debug: rcpt_to array = #{[rcpt_to].inspect}"
-            # smtp_result = @smtp_client.send_message(raw_message, mail_from, [rcpt_to])
           end
         rescue Errno::ECONNRESET, Errno::EPIPE, OpenSSL::SSL::SSLError
           if (tries += 1) < 2
@@ -207,6 +158,7 @@ module Postal
             raise
           end
         end
+    
         result.type = 'Sent'
         result.details = "Message for #{rcpt_to} accepted by #{destination_host_description}"
         if @smtp_client.source_address
@@ -214,15 +166,13 @@ module Postal
         end
         result.output = smtp_result.string
         log "Message sent ##{message.id} to #{destination_host_description} for #{rcpt_to}"
-
-      rescue Errno::ECONNRESET, Errno::EPIPE, OpenSSL::SSL::SSLError => e
-          log "Connection error: #{e.class}: #{e.message}"
-        if (tries += 1) < 2
-          reconnect
-          retry
-        else
-          raise
-        end
+    
+      rescue Net::SMTPFatalError => e
+        log "#{e.class}: #{e.message}"
+        result.type = 'HardFail'
+        result.details = "Permanent SMTP delivery error when sending to #{destination_host_description}"
+        result.output = e.message
+        safe_rset
       rescue Net::SMTPServerBusy, Net::SMTPAuthenticationError, Net::SMTPSyntaxError, Net::SMTPUnknownError, Net::ReadTimeout => e
         log "#{e.class}: #{e.message}"
         result.type = 'SoftFail'
@@ -234,13 +184,6 @@ module Postal
         elsif e.to_s =~ /(\d+) minutes/
           result.retry = ($1.to_i * 60) + 10
         end
-
-        safe_rset
-      rescue Net::SMTPFatalError => e
-        log "#{e.class}: #{e.message}"
-        result.type = 'HardFail'
-        result.details = "Permanent SMTP delivery error when sending to #{destination_host_description}"
-        result.output = e.message
         safe_rset
       rescue => e
         log "#{e.class}: #{e.message}"
@@ -253,10 +196,9 @@ module Postal
         result.output = e.message
         safe_rset
       end
-
+    
       result.time = (Time.now - start_time).to_f.round(2)
-      return result
-    ensure
+      result
     end
 
     def finish

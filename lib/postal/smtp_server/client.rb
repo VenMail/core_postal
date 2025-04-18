@@ -381,23 +381,20 @@ module Postal
           elsif @credential || @domain
             # Handle authenticated sending
             @state = :rcpt_to_received
-            if @domain
-              if @domain.owner.suspended?
-                '535 Mail server has been suspended'
-              else
-                log "Added external address '#{rcpt_to}' for authenticated domain user"
-                @recipients << [:credential, rcpt_to, @server]
-                '250 OK'
-              end
+            server = @domain ? @domain.owner : @credential.server
+            if server.suspended?
+              '535 Mail server has been suspended'
             else
-              if @credential.server.suspended?
-                '535 Mail server has been suspended'
+              recipient_domain = rcpt_to.split('@').last
+              if Domain.where(name: recipient_domain, owner: server).exists?
+                '550 Cannot send to local domain without a route'
               else
                 log "Added external address '#{rcpt_to}'"
-                @recipients << [:credential, rcpt_to, @credential.server]
+                @recipients << [:credential, rcpt_to, server]
                 '250 OK'
               end
             end
+          end
 
           elsif route = Route.find_by_name_and_domain(uname, domain)
             # Original route handling...
