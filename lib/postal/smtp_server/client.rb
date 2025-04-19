@@ -469,7 +469,12 @@ module Postal
             finished
           else
             data = data.to_s.sub(/\A\.\./, '.')
-
+            
+            # Detect Resent-Sender in headers as they arrive
+            if @receiving_headers && data =~ /^Resent-Sender:/i
+              log "Debug: Detected Resent-Sender header in incoming message"
+            end
+            
             if @credential && @credential.server.log_smtp_data?
               # We want to log if enabled
             else
@@ -517,10 +522,15 @@ module Postal
           return '552 Message too large (maximum size %dMB)' % Postal.config.smtp_server.max_message_size
         end
 
-        if @headers['received'].select { |r| r =~ /by #{Postal.config.dns.smtp_server_hostname}/ }.count > 4
+        # More strict Resent-Sender checking - if we see one at the start of a line
+        resent_headers = @data.scan(/^Resent-[^:]+:/i)
+        log "Debug: Message contains #{resent_headers.count} Resent-* headers"
+        
+        if resent_headers.count > 3  # Allow a limited number of legitimate resent headers
+          log "Rejecting message with too many Resent headers (#{resent_headers.count})"
           transaction_reset
           @state = :welcomed
-          return '550 Loop detected'
+          return '550 Message appears to be in a forwarding loop'
         end
 
         authenticated_domain = nil
@@ -550,6 +560,7 @@ module Postal
               message.scope = 'outgoing'
               message.domain_id = @domain&.id
               message.save
+              message.original_mail_from = @mail_from
             else
               message = server.message_db.new_message
               message.rcpt_to = rcpt_to
@@ -560,6 +571,7 @@ module Postal
               message.domain_id = authenticated_domain&.id
               message.credential_id = @credential.id
               message.save
+              message.original_mail_from = @mail_from
             end
 
           when :bounce

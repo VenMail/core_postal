@@ -122,7 +122,33 @@ module Postal
       end
     
       begin
-        mail_from = Postal.config.smtp_server.disable_bounce_return_path && message.bounce == 1 ? "" : message.mail_from
+        if Postal.config.smtp_server.disable_bounce_return_path
+          if message.bounce == 1
+            mail_from = ""
+          else
+            # Extract From header to determine MAIL FROM
+            headers, _ = extract_headers_and_body(message.raw_message)
+            from_header = headers.find { |h| h.downcase.start_with?('from:') }
+            
+            mail_from = if from_header
+                          # Extract email address from From header
+                          address_part = from_header.split(':', 2).last.strip
+                          email = address_part[/<([^>]+)>/, 1] || address_part.split.find { |p| p.include?('@') }
+                          email ? email.strip : ""
+                        else
+                          # Fallback to original MAIL FROM if no From header
+                          message.mail_from
+                        end
+            
+            log "Debug: Using sender address from From header: #{mail_from}"
+          end
+        else
+          # Standard return path logic
+          mail_from = message.domain.return_path_status == 'OK' ? 
+            "#{message.server.token}@#{message.domain.return_path_domain}" : 
+            "#{message.server.token}@#{Postal.config.dns.return_path}"
+        end
+        
         rcpt_to = force_rcpt_to || @options[:force_rcpt_to] || message.rcpt_to
         unless rcpt_to && rcpt_to.is_a?(String) && !rcpt_to.strip.empty?
           log "Error: Invalid recipient address: #{rcpt_to.inspect}"
@@ -133,49 +159,15 @@ module Postal
         # Debug logging
         log "Debug: Processing message #{message.id}, bounce=#{message.bounce}"
         
-        # Completely revised approach to prevent resent header loops
+        # IMPORTANT: Never modify the raw message content - ever
         raw_message = message.raw_message
         
-        # Only add Resent-Sender in non-bounce messages when the option is enabled
-        if Postal.config.smtp_server.disable_bounce_return_path && message.bounce != 1
-          headers, body = extract_headers_and_body(raw_message)
-          
-          # Log existing headers for debugging
-          resent_headers = headers.select { |h| h =~ /^Resent-/i }
-          log "Debug: Found #{resent_headers.length} existing Resent-* headers"
-          resent_headers.each { |h| log "Debug: Existing header: #{h}" }
-          
-          # Check if there's already a matching Resent-Sender header
-          existing_resent_sender = headers.find do |h| 
-            match = h =~ /^Resent-Sender:\s*#{Regexp.escape(mail_from)}/i
-            log "Debug: Checking header '#{h}' against mail_from '#{mail_from}', match: #{!match.nil?}" if h =~ /^Resent-Sender:/i
-            match
-          end
-          
-          # Only add if no matching Resent-Sender exists
-          if !existing_resent_sender
-            # Remove any existing Resent-Sender headers to prevent accumulation
-            original_count = headers.length
-            clean_headers = headers.reject { |h| h =~ /^Resent-Sender:/i }
-            removed_count = original_count - clean_headers.length
-            log "Debug: Removed #{removed_count} existing Resent-Sender headers"
-            
-            # Add our new Resent-Sender header
-            log "Debug: Adding new Resent-Sender: #{mail_from}"
-            raw_message = "Resent-Sender: #{mail_from}\r\n" + 
-                          clean_headers.join("\r\n") + 
-                          "\r\n\r\n" + body
-          else
-            log "Debug: Not adding Resent-Sender as matching header already exists"
-          end
-        else
-          reason = message.bounce == 1 ? "is a bounce message" : "disable_bounce_return_path is not enabled"
-          log "Debug: Not modifying headers because message #{reason}"
-        end
-      
-        # Log a sample of the final message
+        log "Debug: Sending with envelope from: #{mail_from}"
+        log "Debug: Raw message contains #{raw_message.scan(/^Resent-Sender:/i).count} Resent-Sender headers"
+        
+        # Log a sample of the message
         header_preview = raw_message.split(/\r?\n\r?\n/, 2)[0].split(/\r?\n/).first(10).join("\r\n")
-        log "Debug: First 10 lines of headers after processing:\r\n#{header_preview}"
+        log "Debug: First 10 lines of headers:\r\n#{header_preview}"
         
         tries = 0
         begin
