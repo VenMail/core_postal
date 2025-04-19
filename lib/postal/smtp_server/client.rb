@@ -522,15 +522,62 @@ module Postal
           return '552 Message too large (maximum size %dMB)' % Postal.config.smtp_server.max_message_size
         end
 
-        # More strict Resent-Sender checking - if we see one at the start of a line
+        # More strict Resent-Sender checking
         resent_headers = @data.scan(/^Resent-[^:]+:/i)
         log "Debug: Message contains #{resent_headers.count} Resent-* headers"
         
-        if resent_headers.count > 3  # Allow a limited number of legitimate resent headers
+        if resent_headers.count > 3
           log "Rejecting message with too many Resent headers (#{resent_headers.count})"
           transaction_reset
           @state = :welcomed
           return '550 Message appears to be in a forwarding loop'
+        end
+
+        # Validate From header matches authenticated domain
+        if @credential || @domain
+          # Extract the From header
+          from_header = @headers['from']&.first
+          unless from_header
+            log "Rejected: No From header present"
+            transaction_reset
+            @state = :welcomed
+            return '550 From header is required'
+          end
+
+          # Extract domain from From header
+          from_domain = nil
+          begin
+            from_email = from_header.match(/<([^>]+@[^>]+)>/)&.[](1) || from_header.scan(/\S+@\S+/).first
+            from_domain = from_email&.split('@')&.last&.downcase
+          rescue StandardError => e
+            log "Error parsing From header: #{e.message}"
+          end
+
+          unless from_domain
+            log "Rejected: Could not parse domain from From header"
+            transaction_reset
+            @state = :welcomed
+            return '550 Invalid From header format'
+          end
+
+          # Get the authenticated domain
+          authenticated_domain = nil
+          if @domain
+            authenticated_domain = @domain.name
+          else
+            authenticated_domain = @credential.server.find_authenticated_domain_from_headers(@headers)&.name
+          end
+
+          # Log what we found for debugging
+          log "Debug: From domain: #{from_domain}, Authenticated domain: #{authenticated_domain}"
+
+          # Skip this check for internal/bounce messages
+          if !@recipients.any? {|r| r[0] == :bounce} && authenticated_domain && from_domain != authenticated_domain
+            log "Rejected: From domain #{from_domain} does not match authenticated domain #{authenticated_domain}"
+            transaction_reset
+            @state = :welcomed
+            return '550 From domain does not match authentication'
+          end
         end
 
         authenticated_domain = nil

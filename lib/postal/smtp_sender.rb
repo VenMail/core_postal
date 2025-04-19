@@ -123,25 +123,29 @@ module Postal
     
       begin
         if Postal.config.smtp_server.disable_bounce_return_path
-          if message.bounce == 1
-            mail_from = ""
-          else
-            # Extract From header to determine MAIL FROM
-            headers, _ = extract_headers_and_body(message.raw_message)
-            from_header = headers.find { |h| h.downcase.start_with?('from:') }
-            
-            mail_from = if from_header
-                          # Extract email address from From header
-                          address_part = from_header.split(':', 2).last.strip
-                          email = address_part[/<([^>]+)>/, 1] || address_part.split.find { |p| p.include?('@') }
-                          email ? email.strip : ""
-                        else
-                          # Fallback to original MAIL FROM if no From header
-                          message.mail_from
+          mail_from = if message.bounce == 1
+                        ""
+                      else
+                        # Extract From header
+                        headers, _ = extract_headers_and_body(message.raw_message)
+                        from_header = headers.find { |h| h.downcase.start_with?('from:') }
+                        
+                        # Strict extraction with error handling
+                        unless from_header
+                          log "Error: No From header found in message #{message.id}"
+                          raise ArgumentError, "From header is required"
                         end
-            
-            log "Debug: Using sender address from From header: #{mail_from}"
-          end
+
+                        address_part = from_header.split(':', 2).last.strip
+                        # Use a more robust email parser
+                        email = address_part[/<?([^\s<>]+@[^\s<>]+)>?/, 1]
+                        unless email
+                          log "Error: Invalid From header format: #{address_part}"
+                          raise ArgumentError, "Invalid From header"
+                        end
+                        email.strip.downcase
+                      end
+          log "Debug: Using MAIL FROM: #{mail_from}"
         else
           # Standard return path logic
           mail_from = message.domain.return_path_status == 'OK' ? 
@@ -156,18 +160,25 @@ module Postal
         end
         recipients = [rcpt_to.strip]
         
-        # Debug logging
+        # Remove Resent-Sender headers from raw_message when disable_bounce_return_path is enabled
+        if Postal.config.smtp_server.disable_bounce_return_path && message.bounce != 1
+          headers, body = extract_headers_and_body(message.raw_message)
+          original_count = headers.length
+          headers.reject! { |h| h.downcase.start_with?('resent-sender:') }
+          removed_count = original_count - headers.length
+          log "Debug: Removed #{removed_count} Resent-Sender headers"
+          raw_message = headers.join("\r\n") + "\r\n\r\n" + body
+        else
+          raw_message = message.raw_message
+        end
+        
+        # Log processing information
         log "Debug: Processing message #{message.id}, bounce=#{message.bounce}"
-        
-        # IMPORTANT: Never modify the raw message content - ever
-        raw_message = message.raw_message
-        
         log "Debug: Sending with envelope from: #{mail_from}"
-        log "Debug: Raw message contains #{raw_message.scan(/^Resent-Sender:/i).count} Resent-Sender headers"
         
         # Log a sample of the message
         header_preview = raw_message.split(/\r?\n\r?\n/, 2)[0].split(/\r?\n/).first(10).join("\r\n")
-        log "Debug: First 10 lines of headers:\r\n#{header_preview}"
+        log "Debug: First 10 lines of headers after cleanup:\r\n#{header_preview}"
         
         tries = 0
         begin
