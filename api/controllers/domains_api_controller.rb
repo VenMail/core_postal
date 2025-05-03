@@ -117,7 +117,7 @@ controller :domains do
     description "Verify a single domain based on ID"
     
     param :id, "ID of the domain", :type => Integer, :required => true
-    param :force, "Force verification", :type => Boolean, :default => false
+    param :force, "Force verification", :type => boolean, :default => false
     returns Hash
 
     action do
