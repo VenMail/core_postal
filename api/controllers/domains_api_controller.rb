@@ -82,12 +82,15 @@ controller :domains do
             created_at: domain.created_at,
             updated_at: domain.updated_at,
             dns_checked_at: domain.dns_checked_at,
+            spf_record: domain.spf_record,
             spf_status: domain.spf_status,
             spf_error: domain.spf_error,
             dkim_status: domain.dkim_status,
             dkim_error: domain.dkim_error,
             mx_status: domain.mx_status,
             mx_error: domain.mx_error,
+            verification_method: domain.verification_method,
+            verification_token: domain.verification_token,
             return_path_status: domain.return_path_status,
             return_path_error: domain.return_path_error,
             outgoing: domain.outgoing,
@@ -95,6 +98,7 @@ controller :domains do
             owner_type: domain.owner_type,
             owner_id: domain.owner_id,
             dkim_identifier_string: domain.dkim_identifier_string,
+            dkim_record: domain.dkim_record,
             use_for_any: domain.use_for_any
           }
         end
