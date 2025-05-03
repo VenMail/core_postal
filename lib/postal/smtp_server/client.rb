@@ -394,8 +394,7 @@ module Postal
                 '250 OK'
               end
             end
-          end
-
+            
           elsif route = Route.find_by_name_and_domain(uname, domain)
             # Original route handling...
             @state = :rcpt_to_received
@@ -421,9 +420,9 @@ module Postal
               rcpt_to(data)
             else
               parts = @mail_from.rpartition('@')
-              domain = parts[1]
+              domain = parts[1] + parts[2]
               dm = Domain.includes(:owner).where(name: domain).first
-              if not dm:
+              if !dm
                 parts = @mail_from.rpartition('@nia.')
                 domain = parts[2]
                 dm = Domain.includes(:owner).where(name: domain).first
