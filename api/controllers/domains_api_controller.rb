@@ -117,6 +117,7 @@ controller :domains do
     description "Verify a single domain based on ID"
     
     param :id, "ID of the domain", :type => Integer, :required => true
+    param :force, "Force verification", :type => Boolean, :default => false
     returns Hash
 
     action do
@@ -130,9 +131,12 @@ controller :domains do
             domain.check_dns(:manual)
             domain.as_json
           else
-            if domain.verify_with_dns
-              domain.as_json
+            if params.force
+              domain.verify
             else
+              if domain.verify_with_dns
+                domain.as_json
+              else
               {
                 success: false,
                 message: "Invalid verification code. Please check and try again"
