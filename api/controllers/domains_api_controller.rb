@@ -137,13 +137,13 @@ controller :domains do
               if domain.verify_with_dns
                 domain.as_json
               else
-              {
-                success: false,
-                message: "Invalid verification code. Please check and try again"
-              }
+                {
+                  success: false,
+                  message: "Invalid verification code. Please check and try again"
+                }
+              end
             end
           end
-
         end
       rescue => e
         custom_data = e.data if e.is_a?(Moonrope::Errors::StructuredError)
