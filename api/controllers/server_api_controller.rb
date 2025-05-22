@@ -10,6 +10,7 @@ controller :server do
     param :name, "Name of the server", type: String
     param :mode, "Mode of the server", type: String
     param :webhook, "Webhook of the server", type: String
+    param :event_hook, "Event webhook of the server", type: String
     param :organization_id, "Organization ID", type: Integer
     returns Hash
 
@@ -41,6 +42,19 @@ controller :server do
         if not default_endpoint.save
           error "Could not save server information #{default_endpoint.errors.full_messages}", 422
         end
+
+        default_event_hook = Webhook.new(
+          name: "DefaultEventHook",
+          server_id: @server.id,
+          url: params[:event_hook] || "https://api.venmail.io/api/v1/events/org/#{@server.id}",
+          enabled: true,
+          all_events: false,
+          events: ['MessageDelayed', 'MessageDeliveryFailed', 'MessageHeld', 'MessageBounced']
+        )
+        if not default_event_hook.save
+          error "Could not save server information #{default_event_hook.errors.full_messages}", 422
+        end
+        
         # Create a new default credential for the created server
         default_credential = Credential.new(
           server_id: @server.id,
