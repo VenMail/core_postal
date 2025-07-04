@@ -9,6 +9,7 @@ services:
     entrypoint: ["/docker-entrypoint.sh"]
     volumes:
       - "./docker/ci-config:/config"
+      - "./mail:/mail"
     environment:
       POSTAL_CONFIG_ROOT: /config
       KATAPULT_CONFIG_FILE: /ci-config.yml
@@ -17,6 +18,24 @@ services:
         mariadb:3306
         rabbitmq:5672
         rspamd:11334
+
+  dovecot:
+    build:
+      context: ./docker/dovecot
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "143:143"   # IMAP
+      - "993:993"   # IMAPS
+      - "110:110"   # POP3
+      - "995:995"   # POP3S
+    volumes:
+      - "./mail:/mail"
+      - "./docker/dovecot/users:/etc/dovecot/users"
+    depends_on:
+      - postal
+    environment:
+      - DOVECOT_CONFIG_DIR=/etc/dovecot
 
   mariadb:
     image: mariadb

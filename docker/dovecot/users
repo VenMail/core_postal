@@ -1,0 +1,7 @@
+# Dovecot users file
+# Format: email:password_hash:uid:gid:gecos:home:shell
+# This file will be mounted into the container
+# Add users using the add_user.sh script or manually
+
+# Example user (replace with actual users):
+# test@example.com:{SHA512-CRYPT}$6$rounds=5000$salt$hash:5000:5000::/mail/v1/example.com/test:/bin/false 
