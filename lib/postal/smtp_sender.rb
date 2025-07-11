@@ -220,14 +220,14 @@ module Postal
         log "#{e.class}: #{e.message}"
         result.type = 'HardFail'
         result.details = "Permanent SMTP delivery error when sending to #{destination_host_description}"
-        result.output = e.message
+        result.output = e.message.to_s[0, 500].strip
         safe_rset
       rescue Net::SMTPServerBusy, Net::SMTPAuthenticationError, Net::SMTPSyntaxError, Net::SMTPUnknownError, Net::ReadTimeout => e
         log "#{e.class}: #{e.message}"
         result.type = 'SoftFail'
         result.retry = true
         result.details = "Temporary SMTP delivery error when sending to #{destination_host_description}"
-        result.output = e.message
+        result.output = e.message.to_s[0, 500].strip
         if e.to_s =~ /(\d+) seconds/
           result.retry = $1.to_i + 10
         elsif e.to_s =~ /(\d+) minutes/
@@ -242,7 +242,7 @@ module Postal
         result.type = 'SoftFail'
         result.retry = true
         result.details = "An error occurred while sending the message to #{destination_host_description}"
-        result.output = e.message
+        result.output = e.message.to_s[0, 500].strip
         safe_rset
       end
     
