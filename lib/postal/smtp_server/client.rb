@@ -362,17 +362,24 @@ module Postal
 
       def lookup_alias_info(address)
         ALIAS_CHECK_URLS.each do |url|
-          response = Postal::HTTP.get(url, params: { alias: address }, timeout: ALIAS_HTTP_TIMEOUT)
+          response = Postal::HTTP.post(url, body: { alias: address }, timeout: ALIAS_HTTP_TIMEOUT) # Change to POST
           log "Alias lookup for #{address} via #{url}: #{response[:code]}"
           next unless response && response[:code] == 200 && response[:body].present?
 
           begin
-            return JSON.parse(response[:body])
+            parsed = JSON.parse(response[:body])
+            log "Alias lookup for #{address} via #{url}: #{parsed}"
+            return parsed
           rescue JSON::ParserError => e
             log "Alias lookup parse failure for #{address} via #{url}: #{e.message}"
             next
           end
         end
+        nil
+      rescue => e
+        log "Alias lookup request failed for #{address}: #{e.message}"
+        nil
+      end
 
         nil
       rescue => e
