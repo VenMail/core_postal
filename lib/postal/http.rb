@@ -15,16 +15,27 @@ module Postal
     def self.request(method, url, options = {})
       options[:headers] ||= {}
       uri = URI.parse(url)
-      request = method.new((uri.path.length == 0 ? "/" : uri.path) + (uri.query ? "?" + uri.query : ""))
+
+      params = options[:params] if options[:params].is_a?(Hash)
+      path = uri.path.length == 0 ? "/" : uri.path
+      query = uri.query
+
+      if params && method == Net::HTTP::Get
+        encoded_params = URI.encode_www_form(params)
+        query = [query, encoded_params].compact.reject { |part| part.nil? || part.empty? }.join('&')
+      end
+
+      request_path = query && !query.empty? ? "#{path}?#{query}" : path
+      request = method.new(request_path)
       options[:headers].each { |k,v| request.add_field k, v }
 
       if options[:username] || uri.user
         request.basic_auth(options[:username] || uri.user, options[:password] || uri.password)
       end
 
-      if options[:params].is_a?(Hash)
+      if params && method != Net::HTTP::Get
         # If params has been provided, sent it them as form encoded values
-        request.set_form_data(options[:params])
+        request.set_form_data(params)
 
       elsif options[:json].is_a?(String)
         # If we have a JSON string, set the content type and body to be the JSON
