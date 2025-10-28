@@ -381,12 +381,6 @@ module Postal
         nil
       end
 
-        nil
-      rescue => e
-        log "Alias lookup request failed for #{address}: #{e.message}"
-        nil
-      end
-
       def rcpt_to(data)
         return '503 EHLO/HELO and MAIL FROM first please' unless in_state(:mail_from_received, :rcpt_to_received)
 
