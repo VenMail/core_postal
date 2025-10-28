@@ -1,20 +1,20 @@
 FROM dovecot/dovecot:2.3
 
 # Install additional packages
-RUN apk add --no-cache \
-    openssl \
-    bash
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl bash \
+  && rm -rf /var/lib/apt/lists/*
 
 # Create vmail user and group
-RUN addgroup -g 5000 vmail && \
-    adduser -D -s /sbin/nologin -u 5000 -G vmail vmail
+RUN groupadd -g 5000 vmail \
+  && useradd -r -u 5000 -g vmail -s /usr/sbin/nologin -d /mail vmail
 
 # Create necessary directories
-RUN mkdir -p /mail/v1 && \
-    mkdir -p /var/lib/dovecot/sieve && \
-    mkdir -p /etc/dovecot/users && \
-    chown -R vmail:vmail /mail && \
-    chown -R vmail:vmail /var/lib/dovecot
+RUN mkdir -p /mail/v1 \
+  && mkdir -p /var/lib/dovecot/sieve \
+  && mkdir -p /etc/dovecot \
+  && chown -R vmail:vmail /mail \
+  && chown -R vmail:vmail /var/lib/dovecot
 
 # Copy configuration files
 COPY conf.d/ /etc/dovecot/conf.d/
@@ -28,24 +28,24 @@ RUN openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
     chmod 644 /etc/ssl/certs/dovecot.crt
 
 # Create quota warning script
-RUN echo '#!/bin/bash' > /usr/local/bin/quota-warning.sh && \
-    echo 'echo "Quota warning: $1% for user $2"' >> /usr/local/bin/quota-warning.sh && \
-    chmod +x /usr/local/bin/quota-warning.sh
+RUN echo '#!/bin/bash' > /usr/local/bin/quota-warning.sh \
+  && echo 'echo "Quota warning: $1% for user $2"' >> /usr/local/bin/quota-warning.sh \
+  && chmod +x /usr/local/bin/quota-warning.sh
 
 # Copy startup script
 COPY start.sh /usr/local/bin/start.sh
-RUN chmod +x /usr/local/bin/start.sh
+RUN sed -i 's/\r$//' /usr/local/bin/start.sh \
+  && chmod +x /usr/local/bin/start.sh
 
 # Copy user management script
 COPY add_user.sh /usr/local/bin/add_user.sh
-RUN chmod +x /usr/local/bin/add_user.sh
+RUN sed -i 's/\r$//' /usr/local/bin/add_user.sh \
+  && chmod +x /usr/local/bin/add_user.sh
 
 # Create a sample user file (you'll need to populate this with actual users)
-RUN echo "test@example.com:{SHA512-CRYPT}$6$rounds=5000$salt$hash:5000:5000::/mail/v1/example.com/test:/bin/false" > /etc/dovecot/users
-
-# Set proper permissions
-RUN chown -R vmail:vmail /etc/dovecot/users
+RUN install -o vmail -g vmail -m 0600 -D /dev/null /etc/dovecot/users \
+  && printf '%s\n' 'test@example.com:{SHA512-CRYPT}$6$rounds=5000$salt$hash:5000:5000::/mail/v1/example.com/test:/bin/false' > /etc/dovecot/users
 
 EXPOSE 143 993 110 995
 
-CMD ["/usr/local/bin/start.sh"] 
+CMD ["/usr/local/bin/start.sh"]

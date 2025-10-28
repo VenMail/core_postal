@@ -235,14 +235,16 @@ class Route < ApplicationRecord
 
     return nil if normalized_domain.blank?
 
-    route = Route.includes(:domain)
-                 .where('LOWER(routes.name) = ? AND LOWER(domains.name) = ?', normalized_name, normalized_domain)
-                 .first if normalized_name.present?
+    scope = Route.joins(:domain)
+
+    route = scope
+            .where('LOWER(routes.name) = ? AND LOWER(domains.name) = ?', normalized_name, normalized_domain)
+            .first if normalized_name.present?
 
     if route.nil?
-      route = Route.includes(:domain)
-                   .where('routes.name = ? AND LOWER(domains.name) = ?', '*', normalized_domain)
-                   .first
+      route = scope
+              .where('routes.name = ? AND LOWER(domains.name) = ?', '*', normalized_domain)
+              .first
     end
 
     route

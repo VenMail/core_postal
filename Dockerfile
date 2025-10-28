@@ -1,7 +1,10 @@
 FROM ruby:2.6-buster AS base
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN apt-get update \
+RUN sed -i 's|deb.debian.org|archive.debian.org|g' /etc/apt/sources.list \
+  && sed -i 's|security.debian.org|archive.debian.org|g' /etc/apt/sources.list \
+  && printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99no-check-valid \
+  && apt-get update \
   && apt-get install -y --no-install-recommends \
   software-properties-common dirmngr apt-transport-https \
   && apt-key adv --fetch-keys 'https://mariadb.org/mariadb_release_signing_key.asc' \
@@ -30,6 +33,12 @@ ENV PATH="/opt/postal/app/bin:${PATH}"
 
 # Setup an application
 RUN useradd -r -d /opt/postal -m -s /bin/bash -u 999 postal
+
+# Prepare entrypoint before switching user
+COPY ./docker/wait-for.sh /docker-entrypoint.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh \
+  && chmod +x /docker-entrypoint.sh
+
 USER postal
 RUN mkdir -p /opt/postal/app /opt/postal/config
 WORKDIR /opt/postal/app
@@ -43,8 +52,8 @@ COPY --chown=postal Gemfile Gemfile.lock ./
 RUN bundle install -j 4
 
 # Copy the application (and set permissions)
-COPY ./docker/wait-for.sh /docker-entrypoint.sh
 COPY --chown=postal . .
+RUN find bin -maxdepth 1 -type f -exec sed -i 's/\r$//' {} +
 
 # Export the version
 ARG VERSION=unspecified
