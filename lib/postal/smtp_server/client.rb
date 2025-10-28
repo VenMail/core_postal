@@ -362,7 +362,7 @@ module Postal
 
       def lookup_alias_info(address)
         ALIAS_CHECK_URLS.each do |url|
-          response = Postal::HTTP.post(url, body: { alias: address }, timeout: ALIAS_HTTP_TIMEOUT) # Change to POST
+          response = Postal::HTTP.get(url, params: { alias: address }, timeout: ALIAS_HTTP_TIMEOUT)
           log "Alias lookup for #{address} via #{url}: #{response[:code]}"
           next unless response && response[:code] == 200 && response[:body].present?
 
