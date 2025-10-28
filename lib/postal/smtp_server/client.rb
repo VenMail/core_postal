@@ -2,12 +2,15 @@ require 'resolv'
 require 'nifty/utils/random_string'
 require 'digest'
 require 'unix_crypt'
+require 'json'
 
 module Postal
   module SMTPServer
     class Client
       CRAM_MD5_DIGEST = OpenSSL::Digest.new('md5')
       LOG_REDACTION_STRING = '[redacted]'.freeze
+      ALIAS_CHECK_URL = 'https://m.venmail.io/api/v1/checkalias'.freeze
+      ALIAS_HTTP_TIMEOUT = 5
 
       attr_reader :logging_enabled
 
@@ -312,6 +315,61 @@ module Postal
         '250 OK'
       end
 
+      def handle_alias_lookup(rcpt_to, tag)
+        response = lookup_alias_info(rcpt_to)
+        return nil unless response && response['found']
+
+        main_email = response['main_email']&.strip
+        unless main_email.present?
+          log "Alias lookup returned without main email for #{rcpt_to}"
+          return '550 Alias target is not available'
+        end
+
+        parts = main_email.rpartition('@')
+        return '550 Alias target address invalid' unless parts[1] == '@'
+
+        main_uname = parts[0]
+        main_domain = parts[2]
+        main_uname, _main_tag = main_uname.split('+', 2)
+
+        resolved_route = Route.find_by_name_and_domain(main_uname, main_domain)
+        unless resolved_route
+          log "Alias lookup mapped #{rcpt_to} to #{main_email} but no route exists"
+          return '550 Alias target route not found'
+        end
+
+        if resolved_route.server.suspended?
+          return '535 Mail server has been suspended'
+        elsif resolved_route.mode == 'Reject'
+          return '550 Route does not accept incoming messages'
+        end
+
+        resolved_local = main_uname
+        resolved_local += "+#{tag}" if tag && !tag.empty?
+        resolved_rcpt_to = "#{resolved_local}@#{main_domain}"
+
+        @state = :rcpt_to_received
+        log "Alias #{rcpt_to} resolved to route #{resolved_route.id} (#{resolved_rcpt_to})"
+        @recipients << [:route, resolved_rcpt_to, resolved_route.server, { route: resolved_route, alias: rcpt_to, alias_main: main_email }]
+        '250 OK'
+      rescue => e
+        log "Alias lookup error for #{rcpt_to}: #{e.message}"
+        nil
+      end
+
+      def lookup_alias_info(address)
+        response = Postal::HTTP.get(ALIAS_CHECK_URL, params: { alias: address }, timeout: ALIAS_HTTP_TIMEOUT)
+        return nil unless response && response[:code] == 200 && response[:body].present?
+
+        JSON.parse(response[:body])
+      rescue JSON::ParserError => e
+        log "Alias lookup parse failure for #{address}: #{e.message}"
+        nil
+      rescue => e
+        log "Alias lookup request failed for #{address}: #{e.message}"
+        nil
+      end
+
       def rcpt_to(data)
         return '503 EHLO/HELO and MAIL FROM first please' unless in_state(:mail_from_received, :rcpt_to_received)
 
@@ -378,6 +436,22 @@ module Postal
               '550 Invalid route token'
             end
 
+          elsif route = Route.find_by_name_and_domain(uname, domain)
+            # Original route handling...
+            @state = :rcpt_to_received
+            if route.server.suspended?
+              '535 Mail server has been suspended'
+            elsif route.mode == 'Reject'
+              '550 Route does not accept incoming messages'
+            else
+              log "Added route #{route.id} to recipients (tag: #{tag.inspect})"
+              @recipients << [:route, rcpt_to, route.server, { route: route }]
+              '250 OK'
+            end
+
+          elsif (alias_response = handle_alias_lookup(rcpt_to, tag))
+            alias_response
+
           elsif @credential || @domain
             # Handle authenticated sending
             @state = :rcpt_to_received
@@ -395,19 +469,6 @@ module Postal
               end
             end
             
-          elsif route = Route.find_by_name_and_domain(uname, domain)
-            # Original route handling...
-            @state = :rcpt_to_received
-            if route.server.suspended?
-              '535 Mail server has been suspended'
-            elsif route.mode == 'Reject'
-              '550 Route does not accept incoming messages'
-            else
-              log "Added route #{route.id} to recipients (tag: #{tag.inspect})"
-              @recipients << [:route, rcpt_to, route.server, { route: route }]
-              '250 OK'
-            end
-
           else
             # Original IP authentication attempt...
             @credential = Credential.where(type: 'SMTP-IP').all.sort_by { |c|
