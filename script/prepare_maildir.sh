@@ -70,8 +70,16 @@ fi
 
 [ -z "${MAIL_ROOT:-}" ] || HOST_MAIL_ROOT="$MAIL_ROOT"
 HOST_MAIL_ROOT=$(to_absolute "$HOST_MAIL_ROOT")
+BASE_ROOT="${HOST_MAIL_ROOT%/}"
+
 MAIL_VERSION=${MAIL_VERSION%/}
-MAIL_VERSION_PATH="${HOST_MAIL_ROOT%/}/${MAIL_VERSION:-v1}"
+MAILDIR_ROOT="$BASE_ROOT"
+if [ -n "$MAIL_VERSION" ]; then
+  case "$MAILDIR_ROOT" in
+    */"$MAIL_VERSION") : ;; # already suffixed
+    *) MAILDIR_ROOT="$MAILDIR_ROOT/$MAIL_VERSION" ;;
+  esac
+fi
 
 ensure_dir() {
   dir=$1
@@ -95,14 +103,14 @@ ensure_dir() {
   echo "Set ownership of $dir to ${POSTAL_UID}:${VMAIL_GID}"
 }
 
-ensure_dir "$HOST_MAIL_ROOT"
-ensure_dir "$MAIL_VERSION_PATH"
+ensure_dir "$BASE_ROOT"
+ensure_dir "$MAILDIR_ROOT"
 for subdir in new cur tmp; do
-  ensure_dir "$MAIL_VERSION_PATH/$subdir"
+  ensure_dir "$MAILDIR_ROOT/$subdir"
 done
 
 cat <<INFO
-Prepared Maildir structure at: $MAIL_VERSION_PATH
-Host directory mounted into containers should be: $HOST_MAIL_ROOT
+Prepared Maildir structure at: $MAILDIR_ROOT
+Host directory mounted into containers should be: $BASE_ROOT
 Ownership set to UID:GID ${POSTAL_UID}:${VMAIL_GID} with permissions 0770.
 INFO

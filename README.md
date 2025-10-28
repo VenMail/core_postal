@@ -22,4 +22,12 @@ pwsh ./script/prepare_maildir.ps1 -MailRoot "C:/PostalMail" -MailVersion "v2"
 
 These settings align with the configurable `MAIL_ROOT`/`MAIL_VERSION` build arguments used in both the Postal and Dovecot Dockerfiles.
 
+To create mailbox users inside the Dovecot container, use the helper script:
+
+```bash
+docker compose exec dovecot ./add_user.sh user@example.com supersecret
+```
+
+The script mirrors the same maildir layout (domain/user) and respects the `MAIL_ROOT`, `MAIL_VERSION`, `VMAIL_UID`, and `VMAIL_GID` environment variables so Postal and Dovecot stay in sync.
+
 Private containers are built and published via Github/ghcr.io
