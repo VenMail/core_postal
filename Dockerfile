@@ -32,12 +32,17 @@ RUN setcap 'cap_net_bind_service=+ep' /usr/local/bin/ruby
 ENV PATH="/opt/postal/app/bin:${PATH}"
 
 # Setup an application
-RUN useradd -r -d /opt/postal -m -s /bin/bash -u 999 postal
+RUN groupadd -g 5000 vmail \
+  && useradd -r -d /opt/postal -m -s /bin/bash -u 999 postal \
+  && usermod -a -G vmail postal
 
 # Prepare entrypoint before switching user
 COPY ./docker/wait-for.sh /docker-entrypoint.sh
 RUN sed -i 's/\r$//' /docker-entrypoint.sh \
-  && chmod +x /docker-entrypoint.sh
+  && chmod +x /docker-entrypoint.sh \
+  && mkdir -p /mail \
+  && chown postal:vmail /mail \
+  && chmod 0770 /mail
 
 USER postal
 RUN mkdir -p /opt/postal/app /opt/postal/config

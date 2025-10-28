@@ -1,7 +1,10 @@
 require 'fileutils'
+require 'postal/error'
 
 module Postal
   class MaildirSender < Sender
+    DEFAULT_DIR_MODE = 0o770
+
     def initialize()
       @maildir_path = "/mail/v1"
       @log_id = Nifty::Utils::RandomString.generate(:length => 8).upcase
@@ -20,6 +23,8 @@ module Postal
       result = SendResult.new
       result.log_id = @log_id
 
+      ensure_directory!(@maildir_path)
+
       http_endpoint = message.route.server.http_endpoints.first
       if http_endpoint
         http_sender = cached_sender(Postal::HTTPSender, http_endpoint)
@@ -31,13 +36,15 @@ module Postal
 
       # Generate a unique filename for the new message file
       destination_folder = File.join(@maildir_path, message.recipient_domain, message.recipient_username)
+      ensure_directory!(destination_folder)
+
       new_folder = File.join(destination_folder, "new")
-      FileUtils.mkdir_p(new_folder) unless Dir.exist?(new_folder)
+      ensure_directory!(new_folder)
 
       # Create 'cur' and 'tmp' directories if they don't exist
       %w[cur tmp].each do |subdir|
         subdir_path = File.join(destination_folder, subdir)
-        FileUtils.mkdir_p(subdir_path) unless Dir.exist?(subdir_path)
+        ensure_directory!(subdir_path)
       end
 
       filename = File.join(new_folder, "#{Time.now.to_f}.#{@log_id}")
@@ -64,6 +71,24 @@ module Postal
 
     def log(text)
       Postal.logger_for(:maildir_sender).info("[#{@log_id}] #{text}")
+    end
+
+    def ensure_directory!(path)
+      return if Dir.exist?(path) && File.writable?(path)
+
+      FileUtils.mkdir_p(path, mode: DEFAULT_DIR_MODE) unless Dir.exist?(path)
+
+      begin
+        FileUtils.chmod(DEFAULT_DIR_MODE, path) if Dir.exist?(path)
+      rescue Errno::EPERM, Errno::EACCES
+        raise Postal::Error, "Maildir directory #{path} exists but permissions could not be adjusted. Ensure Postal has write access."
+      end
+
+      unless File.writable?(path)
+        raise Postal::Error, "Maildir directory #{path} is not writable. Update permissions to allow Postal to write deliveries."
+      end
+    rescue Errno::EACCES => e
+      raise Postal::Error, "Maildir directory #{path} could not be prepared: #{e.message}"
     end
   end
 end
