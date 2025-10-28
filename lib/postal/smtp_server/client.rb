@@ -9,7 +9,10 @@ module Postal
     class Client
       CRAM_MD5_DIGEST = OpenSSL::Digest.new('md5')
       LOG_REDACTION_STRING = '[redacted]'.freeze
-      ALIAS_CHECK_URL = 'https://m.venmail.io/api/v1/checkalias'.freeze
+      ALIAS_CHECK_URLS = [
+        'https://m.venmail.io/api/v1/checkalias',
+        'https://app.venmail.io/api/v1/checkalias'
+      ].freeze
       ALIAS_HTTP_TIMEOUT = 5
 
       attr_reader :logging_enabled
@@ -358,12 +361,18 @@ module Postal
       end
 
       def lookup_alias_info(address)
-        response = Postal::HTTP.get(ALIAS_CHECK_URL, params: { alias: address }, timeout: ALIAS_HTTP_TIMEOUT)
-        return nil unless response && response[:code] == 200 && response[:body].present?
+        ALIAS_CHECK_URLS.each do |url|
+          response = Postal::HTTP.get(url, params: { alias: address }, timeout: ALIAS_HTTP_TIMEOUT)
+          next unless response && response[:code] == 200 && response[:body].present?
 
-        JSON.parse(response[:body])
-      rescue JSON::ParserError => e
-        log "Alias lookup parse failure for #{address}: #{e.message}"
+          begin
+            return JSON.parse(response[:body])
+          rescue JSON::ParserError => e
+            log "Alias lookup parse failure for #{address} via #{url}: #{e.message}"
+            next
+          end
+        end
+
         nil
       rescue => e
         log "Alias lookup request failed for #{address}: #{e.message}"
