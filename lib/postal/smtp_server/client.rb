@@ -233,12 +233,12 @@ module Postal
 
       def valid_user_authentication?(email, input_password)
         # Extract domain from email
-        domain = email.split('@').last
+        domain = email.split('@').last&.downcase
         return false unless domain && domain.include?(".")
 
         # Lookup domain and get server
-        dm = Domain.includes(:owner).where(name: domain).first
-        log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
+        dm = Domain.includes(:owner).where('LOWER(domains.name) = ?', domain).first
+        log "\e[33m   WARN: Failed to get domain #{domain}\e[0m" unless dm
         return false unless dm
         server = dm&.owner
 
@@ -411,8 +411,14 @@ module Postal
 
           uname, tag = uname.split('+', 2)
 
-          # if domain == Postal.config.dns.return_path || domain =~ /\A#{Regexp.escape(Postal.config.dns.custom_return_path_prefix)}\./
-          if !Postal.config.smtp_server.disable_bounce_return_path && (domain == Postal.config.dns.return_path || domain =~ /\A#{Regexp.escape(Postal.config.dns.custom_return_path_prefix)}\./)
+          normalized_domain = domain.downcase
+          normalized_uname = uname.downcase
+          normalized_return_path_domain = Postal.config.dns.return_path.to_s.downcase
+          normalized_custom_return_path_prefix = Postal.config.dns.custom_return_path_prefix.to_s.downcase
+
+          custom_return_path_match = normalized_custom_return_path_prefix.present? && normalized_domain.start_with?("#{normalized_custom_return_path_prefix}.")
+
+          if !Postal.config.smtp_server.disable_bounce_return_path && (normalized_domain == normalized_return_path_domain || custom_return_path_match)
             # Original return path handling...
             @state = :rcpt_to_received
             if server = ::Server.where(token: uname).first
@@ -427,7 +433,7 @@ module Postal
               '550 Invalid server token'
             end
 
-          elsif domain == Postal.config.dns.route_domain
+          elsif normalized_domain == Postal.config.dns.route_domain.to_s.downcase
             # Original route domain handling...
             @state = :rcpt_to_received
             if route = Route.where(token: uname).first
@@ -445,7 +451,7 @@ module Postal
               '550 Invalid route token'
             end
 
-          elsif route = Route.find_by_name_and_domain(uname, domain)
+          elsif route = Route.find_by_name_and_domain(normalized_uname, normalized_domain)
             # Original route handling...
             @state = :rcpt_to_received
             if route.server.suspended?
@@ -468,8 +474,8 @@ module Postal
             if server.suspended?
               '535 Mail server has been suspended'
             else
-              recipient_domain = rcpt_to.split('@').last
-              if Domain.where(name: recipient_domain, owner: server).exists?
+              recipient_domain = rcpt_to.split('@').last&.downcase
+              if recipient_domain && Domain.where('LOWER(name) = ?', recipient_domain).where(owner: server).exists?
                 '550 Cannot send to local domain without a route'
               else
                 log "Added external address '#{rcpt_to}'"
@@ -490,14 +496,14 @@ module Postal
               rcpt_to(data)
             else
               parts = @mail_from.rpartition('@')
-              domain = parts[1] + parts[2]
-              dm = Domain.includes(:owner).where(name: domain).first
+              domain = parts[2]&.downcase.presence
+              dm = Domain.includes(:owner).where('LOWER(domains.name) = ?', domain).first if domain
               if !dm
                 parts = @mail_from.rpartition('@nia.')
-                domain = parts[2]
-                dm = Domain.includes(:owner).where(name: domain).first
+                domain = parts[2]&.downcase.presence
+                dm = Domain.includes(:owner).where('LOWER(domains.name) = ?', domain).first if domain
               end
-              log "\e[33m   WARN: Failed to find domain #{domain}\e[0m" unless dm
+              log "\e[33m   WARN: Failed to find domain #{@mail_from}\e[0m" unless dm
               if dm && (server = dm.owner)
                 @credential = Credential.where(server_id: server.id).first
                 if @credential
@@ -508,7 +514,7 @@ module Postal
                   '530 Authentication required'
                 end
               else
-                log "Domain not found or no associated server"
+                log "Domain missing or no associated server"
                 '530 Authentication required'
               end
             end

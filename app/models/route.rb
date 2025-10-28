@@ -230,10 +230,21 @@ class Route < ApplicationRecord
   end
 
   def self.find_by_name_and_domain(name, domain)
-    route = Route.includes(:domain).where(:name => name, :domains => {:name => domain}).first
+    normalized_name = name&.downcase
+    normalized_domain = domain&.downcase
+
+    return nil if normalized_domain.blank?
+
+    route = Route.includes(:domain)
+                 .where('LOWER(routes.name) = ? AND LOWER(domains.name) = ?', normalized_name, normalized_domain)
+                 .first if normalized_name.present?
+
     if route.nil?
-      route = Route.includes(:domain).where(:name => '*', :domains => {:name => domain}).first
+      route = Route.includes(:domain)
+                   .where('routes.name = ? AND LOWER(domains.name) = ?', '*', normalized_domain)
+                   .first
     end
+
     route
   end
 
