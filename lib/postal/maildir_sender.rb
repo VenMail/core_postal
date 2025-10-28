@@ -6,7 +6,7 @@ module Postal
     DEFAULT_DIR_MODE = 0o770
 
     def initialize()
-      @maildir_path = "/mail/v1"
+      @maildir_path = File.expand_path(ENV.fetch('POSTAL_MAILDIR_PATH', '/mail/v1'))
       @log_id = Nifty::Utils::RandomString.generate(:length => 8).upcase
     end
 

@@ -1,5 +1,9 @@
 FROM dovecot/dovecot:2.3
 
+ARG MAIL_ROOT=/mail
+ARG MAIL_VERSION=v1
+ENV MAILDIR_ROOT=${MAIL_ROOT}/${MAIL_VERSION}
+
 # Install additional packages
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl bash \
@@ -7,13 +11,13 @@ RUN apt-get update \
 
 # Create vmail user and group
 RUN groupadd -g 5000 vmail \
-  && useradd -r -u 5000 -g vmail -s /usr/sbin/nologin -d /mail vmail
+  && useradd -r -u 5000 -g vmail -s /usr/sbin/nologin -d ${MAIL_ROOT} vmail
 
 # Create necessary directories
-RUN mkdir -p /mail/v1 \
+RUN mkdir -p ${MAILDIR_ROOT} \
   && mkdir -p /var/lib/dovecot/sieve \
   && mkdir -p /etc/dovecot \
-  && chown -R vmail:vmail /mail \
+  && chown -R vmail:vmail ${MAIL_ROOT} \
   && chown -R vmail:vmail /var/lib/dovecot
 
 # Copy configuration files
@@ -44,7 +48,7 @@ RUN sed -i 's/\r$//' /usr/local/bin/add_user.sh \
 
 # Create a sample user file (you'll need to populate this with actual users)
 RUN install -o vmail -g vmail -m 0600 -D /dev/null /etc/dovecot/users \
-  && printf '%s\n' 'test@example.com:{SHA512-CRYPT}$6$rounds=5000$salt$hash:5000:5000::/mail/v1/example.com/test:/bin/false' > /etc/dovecot/users
+  && printf '%s\n' "test@example.com:{SHA512-CRYPT}$6$rounds=5000$salt$hash:5000:5000::${MAILDIR_ROOT}/example.com/test:/bin/false" > /etc/dovecot/users
 
 EXPOSE 143 993 110 995
 

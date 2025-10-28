@@ -30,6 +30,9 @@ RUN setcap 'cap_net_bind_service=+ep' /usr/local/bin/ruby
 # Configure 'postal' to work everywhere (when the binary exists
 # later in this process)
 ENV PATH="/opt/postal/app/bin:${PATH}"
+ARG MAIL_ROOT=/mail
+ARG MAIL_VERSION=v1
+ENV POSTAL_MAILDIR_PATH=${MAIL_ROOT}/${MAIL_VERSION}
 
 # Setup an application
 RUN groupadd -g 5000 vmail \
@@ -40,9 +43,9 @@ RUN groupadd -g 5000 vmail \
 COPY ./docker/wait-for.sh /docker-entrypoint.sh
 RUN sed -i 's/\r$//' /docker-entrypoint.sh \
   && chmod +x /docker-entrypoint.sh \
-  && mkdir -p /mail \
-  && chown postal:vmail /mail \
-  && chmod 0770 /mail
+  && mkdir -p ${POSTAL_MAILDIR_PATH} \
+  && chown postal:vmail ${POSTAL_MAILDIR_PATH} \
+  && chmod 0770 ${POSTAL_MAILDIR_PATH}
 
 USER postal
 RUN mkdir -p /opt/postal/app /opt/postal/config
