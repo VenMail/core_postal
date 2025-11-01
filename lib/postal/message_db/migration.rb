@@ -27,6 +27,7 @@ module Postal
           instance = klass.new(database)
           instance.up
           database.insert(:migrations, :version => version)
+          start_from = version
         end
       end
 
