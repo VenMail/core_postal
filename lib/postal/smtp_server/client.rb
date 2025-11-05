@@ -351,6 +351,10 @@ module Postal
         resolved_local += "+#{tag}" if tag && !tag.empty?
         resolved_rcpt_to = "#{resolved_local}@#{main_domain}"
 
+        if resolved_rcpt_to && rcpt_to && resolved_rcpt_to.casecmp(rcpt_to).zero?
+          return '550 Alias mapping loops'
+        end
+
         @state = :rcpt_to_received
         log "Alias #{rcpt_to} resolved to route #{resolved_route.id} (#{resolved_rcpt_to})"
         @recipients << [:route, resolved_rcpt_to, resolved_route.server, { route: resolved_route, alias: rcpt_to, alias_main: main_email }]
@@ -610,6 +614,24 @@ module Postal
           return '550 Message appears to be in a forwarding loop'
         end
 
+        loop_value = Postal.config.dns.smtp_server_hostname.to_s
+        existing_loop_values = Array(@headers['x-postal-loop']).map { |v| v.to_s.strip.downcase }
+        if existing_loop_values.include?(loop_value.downcase)
+          log "Rejecting message with X-Postal-Loop: #{loop_value}"
+          transaction_reset
+          @state = :welcomed
+          return '550 Message appears to be in a forwarding loop'
+        end
+        unless existing_loop_values.include?(loop_value.downcase)
+          header_insert = "X-Postal-Loop: #{loop_value}\r\n"
+          if (idx = @data.index("\r\n\r\n"))
+            @data.insert(idx, header_insert)
+          else
+            @data << header_insert << "\r\n"
+          end
+          @headers['x-postal-loop'] ||= []
+          @headers['x-postal-loop'] << loop_value
+        end
         # Validate From header matches authenticated domain
         if @credential || @domain
           # Extract the From header

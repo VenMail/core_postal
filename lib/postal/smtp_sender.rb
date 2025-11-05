@@ -123,21 +123,16 @@ module Postal
     
       begin
         if Postal.config.smtp_server.disable_bounce_return_path
-          mail_from = if message.bounce == 1
+          mail_from = if message.bounce == 1 || message.mail_from.to_s.strip.empty?
                         ""
                       else
-                        # Extract From header
                         headers, _ = extract_headers_and_body(message.raw_message)
                         from_header = headers.find { |h| h.downcase.start_with?('from:') }
-                        
-                        # Strict extraction with error handling
                         unless from_header
                           log "Error: No From header found in message #{message.id}"
                           raise ArgumentError, "From header is required"
                         end
-
                         address_part = from_header.split(':', 2).last.strip
-                        # Use a more robust email parser
                         email = address_part[/<?([^\s<>]+@[^\s<>]+)>?/, 1]
                         unless email
                           log "Error: Invalid From header format: #{address_part}"
