@@ -354,10 +354,74 @@ class UnqueueMessageJob < Postal::Job
               end
 
               if queued_message.message.spam == 1
+                queued_message.message.database.statistics.increment_all(Time.now, 'spam')
                 queued_message.message.create_delivery("HardFail", :details => "Message is likely spam. Threshold is #{queued_message.server.outbound_spam_threshold} and the message scored #{queued_message.message.spam_score}.")
                 queued_message.destroy
                 log "#{log_prefix} Message is spam (#{queued_message.message.spam_score}). Hard failing."
                 next
+              end
+
+              detector = Postal::CompromiseDetector.new
+              detection = detector.analyze(queued_message.message)
+              if detection.suspicious?
+                pairs = detection.codes.zip(detection.descriptions)
+                if pairs.any?
+                  values = pairs.map { |code, desc| [queued_message.message.id, code, 10, desc] }
+                  queued_message.message.database.insert_multi(:spam_checks, [:message_id, :code, :score, :description], values)
+                end
+                queued_message.message.database.statistics.increment_all(Time.now, 'spam')
+
+                window_seconds = (Postal.config.general.compromise.hour_window rescue 3600).to_i
+                base_where = { :scope => 'outgoing', :timestamp => { :greater_than => (Time.now - window_seconds).to_f } }
+                if queued_message.message.credential_id
+                  base_where[:credential_id] = queued_message.message.credential_id
+                else
+                  base_where[:domain_id] = queued_message.message.domain_id
+                end
+                ids = queued_message.server.message_db.select(:messages, :where => base_where, :fields => [:id])
+                msg_ids = ids.map { |h| h['id'] }
+                suspicious_unique = 0
+                if msg_ids.any?
+                  sc = queued_message.server.message_db.select(:spam_checks, :where => {:message_id => msg_ids, :code => Postal::CompromiseDetector::ALL_CODES}, :fields => [:message_id])
+                  suspicious_unique = sc.map { |s| s['message_id'] }.uniq.count
+                end
+
+                suspicious_threshold = (Postal.config.general.compromise.suspicious_threshold rescue 5).to_i
+                if detection.strong? || suspicious_unique >= suspicious_threshold
+                  if (cred = queued_message.message.credential)
+                    cred.update(:hold => true)
+                    WebhookRequest.trigger(
+                      queued_message.server,
+                      'CredentialLocked',
+                      {
+                        :server => queued_message.server.webhook_hash,
+                        :credential => { :id => cred.id, :uuid => cred.uuid, :name => cred.name, :type => cred.type },
+                        :message => queued_message.message.webhook_hash,
+                        :reason => 'Compromise suspected',
+                        :detection_codes => detection.codes,
+                        :detection_descriptions => detection.descriptions,
+                        :count_last_hour => suspicious_unique
+                      }
+                    )
+                  else
+                    queued_message.server.suspend("Compromise suspected")
+                    WebhookRequest.trigger(
+                      queued_message.server,
+                      'ServerSuspended',
+                      {
+                        :server => queued_message.server.webhook_hash,
+                        :message => queued_message.message.webhook_hash,
+                        :reason => 'Compromise suspected',
+                        :detection_codes => detection.codes,
+                        :detection_descriptions => detection.descriptions,
+                        :count_last_hour => suspicious_unique
+                      }
+                    )
+                  end
+                  queued_message.message.create_delivery('Held', :details => "Message held due to suspected credential compromise")
+                  queued_message.destroy
+                  next
+                end
               end
 
               # Add outgoing headers
@@ -365,17 +429,71 @@ class UnqueueMessageJob < Postal::Job
                 queued_message.message.add_outgoing_headers
               end
 
+              # Domain daily send limit enforcement
+              if (dm = queued_message.message.domain) && dm.daily_send_limit.present? && dm.daily_send_limit.to_i > 0
+                sent_last_24h = queued_message.server.message_db.select(
+                  :messages,
+                  :where => { :scope => 'outgoing', :timestamp => { :greater_than => 24.hours.ago.to_f }, :domain_id => dm.id },
+                  :count => true
+                )
+                if sent_last_24h >= dm.daily_send_limit
+                  prev = dm.send_limit_exceeded_at
+                  now = Time.now
+                  dm.update_columns(:send_limit_exceeded_at => now, :send_limit_approaching_at => nil)
+                  if prev.nil? || prev < 10.minutes.ago
+                    WebhookRequest.trigger(
+                      queued_message.server,
+                      'DomainSendLimitExceeded',
+                      { :server => queued_message.server.webhook_hash, :domain => { id: dm.id, name: dm.name }, :volume_24h => sent_last_24h, :limit => dm.daily_send_limit }
+                    )
+                  end
+                  queued_message.message.create_delivery('Held', :details => "Message held because domain daily send limit (#{dm.daily_send_limit}) has been reached.")
+                  queued_message.destroy
+                  log "#{log_prefix} Domain daily send limit has been exceeded. Holding."
+                  next
+                elsif sent_last_24h >= (dm.daily_send_limit * 0.9)
+                  prev = dm.send_limit_approaching_at
+                  now = Time.now
+                  dm.update_columns(:send_limit_approaching_at => now, :send_limit_exceeded_at => nil)
+                  if prev.nil? || prev < 10.minutes.ago
+                    WebhookRequest.trigger(
+                      queued_message.server,
+                      'DomainSendLimitApproaching',
+                      { :server => queued_message.server.webhook_hash, :domain => { id: dm.id, name: dm.name }, :volume_24h => sent_last_24h, :limit => dm.daily_send_limit }
+                    )
+                  end
+                else
+                  dm.update_columns(:send_limit_approaching_at => nil, :send_limit_exceeded_at => nil)
+                end
+              end
+
               # Check send limits
               if queued_message.server.send_limit_exceeded?
-                # If we're over the limit, we're going to be holding this message
-                queued_message.server.update_columns(:send_limit_exceeded_at => Time.now, :send_limit_approaching_at => nil)
+                prev = queued_message.server.send_limit_exceeded_at
+                now = Time.now
+                queued_message.server.update_columns(:send_limit_exceeded_at => now, :send_limit_approaching_at => nil)
+                if prev.nil? || prev < 10.minutes.ago
+                  WebhookRequest.trigger(
+                    queued_message.server,
+                    'SendLimitExceeded',
+                    { :server => queued_message.server.webhook_hash, :volume => queued_message.server.send_volume, :limit => queued_message.server.send_limit }
+                  )
+                end
                 queued_message.message.create_delivery('Held', :details => "Message held because send limit (#{queued_message.server.send_limit}) has been reached.")
                 queued_message.destroy
                 log "#{log_prefix} Server send limit has been exceeded. Holding."
                 next
               elsif queued_message.server.send_limit_approaching?
-                # If we're approaching the limit, just say we are but continue to process the message
-                queued_message.server.update_columns(:send_limit_approaching_at => Time.now, :send_limit_exceeded_at => nil)
+                prev = queued_message.server.send_limit_approaching_at
+                now = Time.now
+                queued_message.server.update_columns(:send_limit_approaching_at => now, :send_limit_exceeded_at => nil)
+                if prev.nil? || prev < 10.minutes.ago
+                  WebhookRequest.trigger(
+                    queued_message.server,
+                    'SendLimitApproaching',
+                    { :server => queued_message.server.webhook_hash, :volume => queued_message.server.send_volume, :limit => queued_message.server.send_limit }
+                  )
+                end
               else
                 queued_message.server.update_columns(:send_limit_approaching_at => nil, :send_limit_exceeded_at => nil)
               end

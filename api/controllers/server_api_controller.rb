@@ -43,6 +43,47 @@ controller :server do
           error "Could not save server information #{default_endpoint.errors.full_messages}", 422
         end
 
+  action :attach_ip_pool do
+    title "Attach an IP pool to a server"
+    description "Assign an IP pool to the specified server for outgoing mail"
+    param :server_id, "Server ID", type: Integer
+    param :ip_pool_uuid, "UUID of the IP pool", type: String
+    returns Hash
+    action do
+      server = Server.find(params.server_id)
+      ip_pool = IPPool.find_by_uuid(params.ip_pool_uuid)
+      error("NotFound", 404) unless server && ip_pool
+
+      # Ensure pool belongs to server's organization
+      unless server.organization.ip_pools.include?(ip_pool)
+        error "Forbidden", 403
+      end
+
+      server.update!(ip_pool: ip_pool)
+      {
+        notice: 'IP pool attached',
+        server: server.webhook_hash,
+        ip_pool_uuid: ip_pool.uuid
+      }
+    end
+  end
+
+  action :detach_ip_pool do
+    title "Detach IP pool from a server"
+    description "Remove any attached IP pool from the server"
+    param :server_id, "Server ID", type: Integer
+    returns Hash
+    action do
+      server = Server.find(params.server_id)
+      error("NotFound", 404) unless server
+      server.update!(ip_pool: nil)
+      {
+        notice: 'IP pool detached',
+        server: server.webhook_hash
+      }
+    end
+  end
+
         default_event_hook = Webhook.new(
           name: "DefaultEventHook",
           server_id: @server.id,

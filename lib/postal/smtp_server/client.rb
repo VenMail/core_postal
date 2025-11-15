@@ -218,15 +218,27 @@ module Postal
       end
 
       def authenticate(username, password)
+        # Rate limit check
+        if auth_blocked?(username)
+          log "\e[33m   WARN: AUTH temporarily rate limited for #{username} from #{@ip_address}\e[0m"
+          return '421 Temporarily rate limited'
+        end
         # Check if the provided key (password) is a valid credential key
         if @credential = Credential.where(type: 'SMTP', key: password).first
+          if @credential.hold?
+            log "\e[33m   WARN: AUTH attempt with held credential (#{@credential.id})\e[0m"
+            return '535 Invalid credential'
+          end
           @credential.use
+          record_auth_success(username)
           "235 Granted for #{@credential.server.organization.permalink}/#{@credential.server.permalink}"
         elsif valid_user_authentication?(username, password)
           # If not a valid credential key, treat it as regular username and password authentication
+          record_auth_success(username)
           "235 Granted for #{username}"
         else
           log "\e[33m   WARN: AUTH failure for #{@ip_address}\e[0m"
+          record_auth_failure(username)
           '535 Invalid credential'
         end
       end
@@ -286,7 +298,12 @@ module Postal
           next '535 Denied' if server.nil?
 
           grant = nil
+          # Rate limit check on CRAM-MD5 identity
+          if auth_blocked?(username)
+            next '421 Temporarily rate limited'
+          end
           server.credentials.where(type: 'SMTP').each do |credential|
+            next if credential.hold?
             correct_response = OpenSSL::HMAC.hexdigest(CRAM_MD5_DIGEST, credential.key, challenge)
             next unless password == correct_response
 
@@ -295,7 +312,13 @@ module Postal
             grant = "235 Granted for #{credential.server.organization.permalink}/#{credential.server.permalink}"
             break
           end
-          grant || '535 Denied'
+          if grant
+            record_auth_success(username)
+            grant
+          else
+            record_auth_failure(username)
+            '535 Denied'
+          end
         end
 
         @proc = handler
@@ -498,8 +521,13 @@ module Postal
               credential.ipaddr.include?(@ip_address)
             }          
             if @credential
-              @credential.use
-              rcpt_to(data)
+              if @credential.hold?
+                log "\e[33m   WARN: SMTP-IP auth blocked for held credential (#{@credential.id})\e[0m"
+                '535 Invalid credential'
+              else
+                @credential.use
+                rcpt_to(data)
+              end
             else
               parts = @mail_from.rpartition('@')
               domain = parts[2]&.downcase.presence
@@ -513,8 +541,13 @@ module Postal
               if dm && (server = dm.owner)
                 @credential = Credential.where(server_id: server.id).first
                 if @credential
-                  @credential.use
-                  rcpt_to(data)
+                  if @credential.hold?
+                    log "\e[33m   WARN: SMTP-IP inferred auth blocked for held credential (#{@credential.id})\e[0m"
+                    '535 Invalid credential'
+                  else
+                    @credential.use
+                    rcpt_to(data)
+                  end
                 else
                   log "No credential found for server #{server.id}"
                   '530 Authentication required'
@@ -757,6 +790,64 @@ module Postal
 
       def in_state(*states)
         states.include?(@state)
+      end
+
+      # Rate limiter helpers
+      def auth_limiter_window
+        (Postal.config.general.compromise.hour_window rescue 3600).to_i
+      end
+
+      def auth_limiter_threshold
+        (Postal.config.general.auth_limiter.max_failures rescue 10).to_i
+      end
+
+      def auth_limiter_block_seconds
+        (Postal.config.general.auth_limiter.block_seconds rescue 900).to_i
+      end
+
+      def auth_scope_keys(username)
+        keys = []
+        keys << "ip:#{@ip_address}" if @ip_address
+        keys << "user:#{username.to_s.downcase}" if username
+        keys
+      end
+
+      def auth_blocked?(username)
+        auth_scope_keys(username).any? do |key|
+          if attempt = AuthAttempt.find_by(scope_key: key)
+            attempt.blocked?
+          else
+            false
+          end
+        end
+      end
+
+      def record_auth_failure(username)
+        now = Time.now
+        window = auth_limiter_window
+        limit = auth_limiter_threshold
+        block_for = auth_limiter_block_seconds
+        auth_scope_keys(username).each do |key|
+          attempt = AuthAttempt.find_or_initialize_by(scope_key: key)
+          if attempt.window_started_at && attempt.window_started_at > window.seconds.ago
+            attempt.count = attempt.count.to_i + 1
+          else
+            attempt.window_started_at = now
+            attempt.count = 1
+          end
+          if attempt.count > limit
+            attempt.blocked_until = now + block_for
+          end
+          attempt.save
+        end
+      end
+
+      def record_auth_success(username)
+        auth_scope_keys(username).each do |key|
+          if attempt = AuthAttempt.find_by(scope_key: key)
+            attempt.update(:count => 0, :window_started_at => nil, :blocked_until => nil)
+          end
+        end
       end
     end
   end

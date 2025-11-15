@@ -18,6 +18,18 @@ general:
   default_spam_threshold: 5.0
   default_spam_failure_threshold: 20.0
   address_spam_failure_threshold: 10.0
+  default_domain_daily_send_limit: 1000
+  reputation_block_threshold_percent: 3.0
+  reputation_min_sample_size: 500
+  compromise:
+    hour_window: 3600
+    suspicious_threshold: 5
+    strong_codes:
+      - COMPROMISE_BITCOIN
+      - COMPROMISE_BLACKMAIL
+  auth_limiter:
+    max_failures: 10
+    block_seconds: 900
 
 web_server:
   bind_address: 127.0.0.1

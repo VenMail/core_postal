@@ -258,6 +258,7 @@ class Server < ApplicationRecord
     self.suspended_at = Time.now
     self.suspension_reason = reason
     self.save!
+    WebhookRequest.trigger(self, 'ServerSuspended', { :server => self.webhook_hash, :reason => reason })
     AppMailer.server_suspended(self).deliver
   end
 

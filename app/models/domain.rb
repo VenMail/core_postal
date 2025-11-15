@@ -58,6 +58,7 @@ class Domain < ApplicationRecord
   random_string :dkim_identifier_string, type: :chars, length: 6, unique: true, upper_letters_only: true
 
   before_create :generate_dkim_key
+  before_create :set_default_daily_send_limit
 
   scope :verified, -> { where.not(verified_at: nil) }
 
@@ -138,6 +139,13 @@ class Domain < ApplicationRecord
 
   def generate_dkim_key
     self.dkim_private_key = OpenSSL::PKey::RSA.new(1024).to_s
+  end
+
+  def set_default_daily_send_limit
+    if self.daily_send_limit.nil?
+      default_limit = Postal.config.general.default_domain_daily_send_limit rescue nil
+      self.daily_send_limit = (default_limit || 1000).to_i
+    end
   end
 
   def verification_email_addresses
