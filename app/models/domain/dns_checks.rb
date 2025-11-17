@@ -15,6 +15,11 @@ class Domain
     check_dkim_record
     check_mx_records
     check_return_path_record
+
+    if source == :auto && !verified? && verification_method == 'DNS' && mx_status == 'OK'
+      self.verified_at ||= Time.now
+    end
+
     self.dns_checked_at = Time.now
     self.save!
     if source == :auto && !dns_ok? && self.owner.is_a?(Server)
