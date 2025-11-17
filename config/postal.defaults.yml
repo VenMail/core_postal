@@ -11,6 +11,7 @@ web:
 general:
   use_ip_pools: false
   exception_url:
+  external_api_base_url: https://api.venmail.io
   maximum_delivery_attempts: 18
   maximum_hold_expiry_days: 7
   suppression_list_removal_delay: 30

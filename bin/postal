@@ -33,7 +33,7 @@ case "$1" in
 
     initialize)
         echo 'Initializing database'
-        run "bundle exec rake db:create db:schema:load db:seed"
+        run "bundle exec rake db:create db:schema:load db:migrate db:seed"
         ;;
 
     upgrade)
