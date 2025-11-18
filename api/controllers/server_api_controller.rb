@@ -18,18 +18,35 @@ controller :server do
       organization_id = params.organization_id || 2 # Use organization_id from params or default to 2
 
       @organization = Organization.find(organization_id)
-      @server = @organization.servers.build(
-        name: params.name,
-        mode: params.mode,
-        organization_id: organization_id
-      )
 
-      # Set the default organization_id if not supplied
-      @server.organization_id ||= @organization.id
+      @organization.with_lock do
+        @server = @organization.servers.where(name: params.name).first
 
-      if @server.save
-        # Create a new default HTTP endpoint for the created server
-        base_url = Postal.config.general.external_api_base_url.to_s.chomp('/')
+        unless @server
+          @server = @organization.servers.build(
+            name: params.name,
+            mode: params.mode,
+            organization_id: organization_id
+          )
+
+          # Set the default organization_id if not supplied
+          @server.organization_id ||= @organization.id
+
+          unless @server.save
+            error "Could not save server information #{@server.errors.full_messages}", 422
+          end
+        end
+      end
+
+      # Create a new default HTTP endpoint for the created server if one does not already exist
+      base_url = Postal.config.general.external_api_base_url.to_s.chomp('/')
+
+      default_endpoint = HTTPEndpoint.where(
+        name: "DefaultEndpoint",
+        server_id: @server.id
+      ).first
+
+      unless default_endpoint
         default_endpoint = HTTPEndpoint.new(
           name: "DefaultEndpoint",
           server_id: @server.id,
@@ -43,7 +60,14 @@ controller :server do
         if not default_endpoint.save
           error "Could not save server information #{default_endpoint.errors.full_messages}", 422
         end
+      end
 
+      default_event_hook = Webhook.where(
+        name: "DefaultEventHook",
+        server_id: @server.id
+      ).first
+
+      unless default_event_hook
         default_event_hook = Webhook.new(
           name: "DefaultEventHook",
           server_id: @server.id,
@@ -55,28 +79,34 @@ controller :server do
         if not default_event_hook.save
           error "Could not save server information #{default_event_hook.errors.full_messages}", 422
         end
-        
-        # Create a new default credential for the created server
+      end
+      
+      # Create a new default credential for the created server if one does not already exist
+      default_credential = Credential.where(
+        server_id: @server.id,
+        type: 'API', # Set the type as needed
+        name: 'Default Credential' # Set the name as needed
+      ).first
+
+      unless default_credential
         default_credential = Credential.new(
           server_id: @server.id,
           type: 'API', # Set the type as needed
           name: 'Default Credential', # Set the name as needed
           hold: false
         )
-    
-        if default_credential.save
-          result = { notice: 'Server was successfully created.' }
-          result[:server_id] = @server.id
-          result[:credential_key] = default_credential.key
-          result[:endpoint_id] = default_endpoint.id
-        else
-          result = { notice: 'Server creation failed.' }
-        end
-    
-        result
-      else
-        error "Could not save server information", 422
       end
+
+      if default_credential.save
+        result = { notice: 'Server was successfully created.' }
+        result[:server_id] = @server.id
+        result[:credential_key] = default_credential.key
+        result[:endpoint_id] = default_endpoint.id
+      else
+        result = { notice: 'Server creation failed.' }
+      end
+
+      result
     end
   end
   
