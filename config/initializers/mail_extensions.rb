@@ -17,6 +17,9 @@ module Mail
     def plain_body
       if self.multipart? and self.text_part
         self.text_part.decoded
+      elsif self.multipart?
+        part = find_first_body_part(self.parts, %r{\Atext/plain}i)
+        part ? part.decoded : nil
       elsif self.mime_type == 'text/plain' || self.mime_type.nil?
         self.decoded
       else
@@ -28,6 +31,9 @@ module Mail
     def html_body
       if self.multipart? and self.html_part
         self.html_part.decoded
+      elsif self.multipart?
+        part = find_first_body_part(self.parts, %r{\Atext/html}i)
+        part ? part.decoded : nil
       elsif self.mime_type == 'text/html'
         self.decoded
       else
@@ -36,6 +42,19 @@ module Mail
     end
 
     private
+
+    def find_first_body_part(parts, mime_regex)
+      parts.each do |part|
+        if part.multipart? && part.parts.any?
+          if found = find_first_body_part(part.parts, mime_regex)
+            return found
+          end
+        elsif part.content_type && part.content_type =~ mime_regex && !part.attachment?
+          return part
+        end
+      end
+      nil
+    end
 
     ## Fix bug in basic parsing
     def parse_message

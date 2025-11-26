@@ -88,10 +88,20 @@ module Postal
           :reply_to => message.headers['reply-to']
         }
 
+        plain_body = message.plain_body
+
         if @endpoint.strip_replies
-          hash[:plain_body], hash[:replies_from_plain_body] = Postal::ReplySeparator.separate(message.plain_body)
+          stripped_plain_body, replies_from_plain_body = Postal::ReplySeparator.separate(plain_body)
+
+          if stripped_plain_body.respond_to?(:blank?) && stripped_plain_body.blank? && replies_from_plain_body.present? && plain_body.present?
+            hash[:plain_body] = plain_body
+            hash[:replies_from_plain_body] = replies_from_plain_body
+          else
+            hash[:plain_body] = stripped_plain_body
+            hash[:replies_from_plain_body] = replies_from_plain_body
+          end
         else
-          hash[:plain_body] = message.plain_body
+          hash[:plain_body] = plain_body
         end
 
         if @endpoint.include_attachments?
