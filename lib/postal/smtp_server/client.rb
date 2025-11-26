@@ -658,7 +658,8 @@ module Postal
         unless existing_loop_values.include?(loop_value.downcase)
           header_insert = "X-Postal-Loop: #{loop_value}\r\n"
           if (idx = @data.index("\r\n\r\n"))
-            @data.insert(idx, header_insert)
+            # Insert before the blank line separator, not at it
+            @data.insert(idx + 2, header_insert)
           else
             @data << header_insert << "\r\n"
           end
