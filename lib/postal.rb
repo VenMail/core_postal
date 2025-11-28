@@ -5,6 +5,7 @@ module Postal
   eager_autoload do
     autoload :AppLogger
     autoload :BounceMessage
+    autoload :CompromiseDetector
     autoload :Config
     autoload :Countries
     autoload :DKIMHeader
