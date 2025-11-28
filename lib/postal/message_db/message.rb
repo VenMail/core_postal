@@ -312,7 +312,7 @@ module Postal
       # Return the HTML body with any tracking links
       #
       def html_body_without_tracking_image
-        html_body.gsub(/\<p class\=['"]ampimg['"].*?\<\/p\>/, '')
+        html_body.to_s.gsub(/\<p class\=['"]ampimg['"].*?\<\/p\>/, '')
       end
 
       #
