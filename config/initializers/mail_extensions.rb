@@ -110,9 +110,24 @@ module Mail
       @parts_list = parts_list
       @content_disposition_type = 'attachment'
       parts_list.map { |p|
-        (p.parts.empty? and p.attachment?) ? p : p.attachments
+        if p.parts.empty?
+          if p.attachment? || special_inline_attachment?(p)
+            p
+          else
+            nil
+          end
+        else
+          p.attachments
+        end
       }.flatten.compact.each { |a| self << a }
       self
+    end
+
+    private
+
+    def special_inline_attachment?(part)
+      mime = part.mime_type.to_s.downcase
+      %w[text/calendar text/vcard text/x-vcard text/directory].include?(mime)
     end
   end
 end
