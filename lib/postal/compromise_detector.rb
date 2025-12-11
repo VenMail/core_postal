@@ -22,21 +22,29 @@ module Postal
 
     def analyze(message)
       text = extract_text(message)
+      html = message.html_body rescue nil
       codes = []
       descs = []
 
       if text.strip.empty?
-        codes << 'COMPROMISE_EMPTY'
-        descs << 'Empty body'
+        unless image_rich_html?(html)
+          codes << 'COMPROMISE_EMPTY'
+          descs << 'Empty body'
+        end
       end
 
-      ascii_min = (config_value(:gibberish, :ascii_ratio_min) || 0.6).to_f
-      nonword_max = (config_value(:gibberish, :nonword_ratio_max) || 0.6).to_f
-      ascii_ratio = text.bytes.count { |b| b < 128 }.to_f / [text.bytesize, 1].max
-      nonword_ratio = text.gsub(/[A-Za-z0-9\s]/, '').size.to_f / [text.size, 1].max
-      if ascii_ratio < ascii_min || nonword_ratio > nonword_max
-        codes << 'COMPROMISE_GIBBERISH'
-        descs << 'Unreadable/gibberish content'
+      min_text_len = (config_value(:gibberish, :min_text_length) || 50).to_i
+      skip_gibberish = image_rich_html?(html) && text.strip.size < min_text_len
+
+      unless skip_gibberish
+        ascii_min = (config_value(:gibberish, :ascii_ratio_min) || 0.6).to_f
+        nonword_max = (config_value(:gibberish, :nonword_ratio_max) || 0.6).to_f
+        ascii_ratio = text.bytes.count { |b| b < 128 }.to_f / [text.bytesize, 1].max
+        nonword_ratio = text.gsub(/[A-Za-z0-9\s]/, '').size.to_f / [text.size, 1].max
+        if ascii_ratio < ascii_min || nonword_ratio > nonword_max
+          codes << 'COMPROMISE_GIBBERISH'
+          descs << 'Unreadable/gibberish content'
+        end
       end
 
       if text =~ /(bc1[0-9a-z]{25,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})/i
@@ -70,6 +78,15 @@ module Postal
     end
 
     private
+
+    def image_rich_html?(html)
+      body = html.to_s
+      return false if body.strip.empty?
+      return false unless body =~ /<img\b/i
+
+      min_len = (config_value(:empty, :min_html_length_for_image_only) || 200).to_i
+      body.length >= min_len
+    end
 
     def extract_text(message)
       body = message.plain_body || ''
