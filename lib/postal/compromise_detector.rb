@@ -1,14 +1,36 @@
+require 'cgi'
+
 module Postal
   class CompromiseDetector
-    STRONG_CODES = %w[COMPROMISE_BITCOIN COMPROMISE_BLACKMAIL].freeze
-    ALL_CODES = (
-      STRONG_CODES + %w[
-        COMPROMISE_PORN
-        COMPROMISE_EMPTY
-        COMPROMISE_GIBBERISH
-        COMPROMISE_BASE64_BLOB
-      ]
-    ).freeze
+    EXTRA_CODES = %w[
+      COMPROMISE_PORN
+      COMPROMISE_EMPTY
+      COMPROMISE_GIBBERISH
+      COMPROMISE_BASE64_BLOB
+    ].freeze
+
+    DEFAULT_STRONG_CODES = %w[COMPROMISE_BITCOIN COMPROMISE_BLACKMAIL].freeze
+
+    STRONG_CODES = DEFAULT_STRONG_CODES
+    ALL_CODES = (DEFAULT_STRONG_CODES + EXTRA_CODES).freeze
+
+    def self.strong_codes
+      cfg = (Postal.config.general.compromise.strong_codes rescue nil)
+      codes = Array(cfg).map(&:to_s).map(&:strip).reject(&:empty?)
+      codes.any? ? codes : DEFAULT_STRONG_CODES
+    end
+
+    def self.all_codes
+      (strong_codes + EXTRA_CODES).uniq
+    end
+
+    def self.countable_codes
+      cfg = (Postal.config.general.compromise.countable_codes rescue nil)
+      codes = Array(cfg).map(&:to_s).map(&:strip).reject(&:empty?)
+      return codes if codes.any?
+
+      (strong_codes + %w[COMPROMISE_BASE64_BLOB]).uniq
+    end
 
     Result = Struct.new(:codes, :descriptions) do
       def suspicious?
@@ -16,7 +38,7 @@ module Postal
       end
 
       def strong?
-        (codes & CompromiseDetector::STRONG_CODES).any?
+        (codes & CompromiseDetector.strong_codes).any?
       end
     end
 
@@ -37,41 +59,60 @@ module Postal
       skip_gibberish = image_rich_html?(html) && text.strip.size < min_text_len
 
       unless skip_gibberish
-        ascii_min = (config_value(:gibberish, :ascii_ratio_min) || 0.6).to_f
         nonword_max = (config_value(:gibberish, :nonword_ratio_max) || 0.6).to_f
-        ascii_ratio = text.bytes.count { |b| b < 128 }.to_f / [text.bytesize, 1].max
-        nonword_ratio = text.gsub(/[A-Za-z0-9\s]/, '').size.to_f / [text.size, 1].max
-        if ascii_ratio < ascii_min || nonword_ratio > nonword_max
+        letter_ratio_min = (config_value(:gibberish, :letter_ratio_min) || 0.2).to_f
+        letter_ratio = text.scan(/[\p{L}\p{N}]/).size.to_f / [text.size, 1].max
+        nonword_ratio = text.gsub(/[\p{L}\p{N}\s]/, '').size.to_f / [text.size, 1].max
+        if nonword_ratio > nonword_max && letter_ratio < letter_ratio_min
           codes << 'COMPROMISE_GIBBERISH'
           descs << 'Unreadable/gibberish content'
         end
       end
 
-      if text =~ /(bc1[0-9a-z]{25,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})/i
+      bitcoin_detected = !!(text =~ /(bc1[0-9a-z]{25,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})/i)
+      if bitcoin_detected
         codes << 'COMPROMISE_BITCOIN'
         descs << 'Bitcoin address detected'
       end
 
       porn_words = (Postal.config.general.compromise.porn_words rescue nil) || %w[sex porn xxx nude anal blowjob escort camgirl hentai shemale incest]
-      porn_hits = porn_words.count { |w| text.downcase.include?(w) }
+      downcased = text.downcase
+      porn_hits = porn_words.count { |w| downcased =~ /\b#{Regexp.escape(w.to_s.downcase)}\b/ }
       porn_threshold = (config_value(:porn, :hits_threshold) || 3).to_i
       if porn_hits >= porn_threshold
         codes << 'COMPROMISE_PORN'
         descs << 'Pornographic slang density'
       end
 
-      blackmail_keywords = (Postal.config.general.compromise.blackmail_keywords rescue nil) || [
-        'blackmail', 'i hacked', 'pay\s*bitcoin', 'send to your contacts', 'recorded you', 'within \d+ hours'
+      blackmail_phrases = (Postal.config.general.compromise.blackmail_phrases rescue nil) || [
+        'blackmail', 'i hacked', 'i have hacked', 'recorded you', 'send to your contacts'
       ]
-      if blackmail_keywords.any? { |kw| text.downcase =~ /#{kw}/i }
+      payment_phrases = (Postal.config.general.compromise.blackmail_payment_phrases rescue nil) || [
+        'pay\s*bitcoin', 'send\s*bitcoin'
+      ]
+      deadline_phrases = (Postal.config.general.compromise.blackmail_deadline_phrases rescue nil) || [
+        'within\s*\d+\s*hours'
+      ]
+
+      blackmail_hit = blackmail_phrases.any? { |kw| downcased =~ /#{kw}/i }
+      payment_hit = bitcoin_detected || payment_phrases.any? { |kw| downcased =~ /#{kw}/i }
+      deadline_hit = deadline_phrases.any? { |kw| downcased =~ /#{kw}/i }
+
+      if blackmail_hit && payment_hit
         codes << 'COMPROMISE_BLACKMAIL'
         descs << 'Extortion/blackmail phrasing'
       end
 
-      min_blob_len = (config_value(:base64, :min_length) || 40).to_i
-      if text =~ /\b[A-Za-z0-9+\/]{#{min_blob_len},}={0,2}\b/ && text.lines.count <= 5
-        codes << 'COMPROMISE_BASE64_BLOB'
-        descs << 'Large base64-like blob'
+      min_blob_len = (config_value(:base64, :min_length) || 200).to_i
+      max_blob_lines = (config_value(:base64, :max_lines) || 8).to_i
+      if text.lines.count <= max_blob_lines
+        if (m = text.match(/\b([A-Za-z0-9+\/]{#{min_blob_len},}={0,2})\b/))
+          blob = m[1]
+          if blob.include?('+') || blob.include?('/') || blob.include?('=')
+            codes << 'COMPROMISE_BASE64_BLOB'
+            descs << 'Large base64-like blob'
+          end
+        end
       end
 
       Result.new(codes.uniq, descs)
@@ -92,7 +133,10 @@ module Postal
       body = message.plain_body || ''
       if body.strip.empty?
         html = message.html_body || ''
+        html = html.to_s
+        html = html.gsub(/data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+\/=]+/i, ' ')
         body = html.gsub(/<[^>]+>/, ' ')
+        body = CGI.unescapeHTML(body) rescue body
       end
       body = body.encode('UTF-8', invalid: :replace, undef: :replace, replace: '') rescue body
       body.to_s[0, 20000]

@@ -369,7 +369,6 @@ class UnqueueMessageJob < Postal::Job
                   values = pairs.map { |code, desc| [queued_message.message.id, code, 10, desc] }
                   queued_message.message.database.insert_multi(:spam_checks, [:message_id, :code, :score, :description], values)
                 end
-                queued_message.message.database.statistics.increment_all(Time.now, 'spam')
 
                 window_seconds = (Postal.config.general.compromise.hour_window rescue 3600).to_i
                 base_where = { :scope => 'outgoing', :timestamp => { :greater_than => (Time.now - window_seconds).to_f } }
@@ -382,7 +381,8 @@ class UnqueueMessageJob < Postal::Job
                 msg_ids = ids.map { |h| h['id'] }
                 suspicious_unique = 0
                 if msg_ids.any?
-                  sc = queued_message.server.message_db.select(:spam_checks, :where => {:message_id => msg_ids, :code => Postal::CompromiseDetector::ALL_CODES}, :fields => [:message_id])
+                  countable_codes = Postal::CompromiseDetector.countable_codes
+                  sc = queued_message.server.message_db.select(:spam_checks, :where => {:message_id => msg_ids, :code => countable_codes}, :fields => [:message_id])
                   suspicious_unique = sc.map { |s| s['message_id'] }.uniq.count
                 end
 
