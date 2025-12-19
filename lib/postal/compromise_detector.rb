@@ -69,7 +69,15 @@ module Postal
         end
       end
 
-      bitcoin_detected = !!(text =~ /(bc1[0-9a-z]{25,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})/i)
+      bitcoin_pattern = /\b(bc1[0-9a-z]{25,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b/i
+      bitcoin_match = text.match(bitcoin_pattern)
+      bitcoin_detected = false
+      if bitcoin_match
+        match_pos = bitcoin_match.begin(0)
+        context_before = text[[0, match_pos - 50].max, 50].to_s
+        url_indicators = %r{(https?://|www\.|\.(com|org|net|io|meet)/|@[a-z0-9])}
+        bitcoin_detected = !(context_before =~ url_indicators)
+      end
       if bitcoin_detected
         codes << 'COMPROMISE_BITCOIN'
         descs << 'Bitcoin address detected'
