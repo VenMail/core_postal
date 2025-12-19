@@ -387,8 +387,49 @@ class UnqueueMessageJob < Postal::Job
                 end
 
                 suspicious_threshold = (Postal.config.general.compromise.suspicious_threshold rescue 5).to_i
-                if detection.strong? || suspicious_unique >= suspicious_threshold
-                  if (cred = queued_message.message.credential)
+                should_hold = detection.strong? || suspicious_unique >= suspicious_threshold
+                
+                if should_hold && (cred = queued_message.message.credential)
+                  # Check for at least 3 other compromise patterns on the same day (excluding current message)
+                  day_start = Time.now.beginning_of_day.to_f
+                  day_end = Time.now.end_of_day.to_f
+                  day_where = { 
+                    :scope => 'outgoing', 
+                    :credential_id => cred.id,
+                    :timestamp => { :greater_than => day_start, :less_than_or_equal_to => day_end }
+                  }
+                  day_msg_ids = queued_message.server.message_db.select(:messages, :where => day_where, :fields => [:id]).map { |h| h['id'] }
+                  day_compromise_count = 0
+                  if day_msg_ids.any?
+                    # Exclude current message from count
+                    other_msg_ids = day_msg_ids - [queued_message.message.id]
+                    if other_msg_ids.any?
+                      countable_codes = Postal::CompromiseDetector.countable_codes
+                      day_sc = queued_message.server.message_db.select(:spam_checks, :where => {:message_id => other_msg_ids, :code => countable_codes}, :fields => [:message_id])
+                      day_compromise_count = day_sc.map { |s| s['message_id'] }.uniq.count
+                    end
+                  end
+                  
+                  # Check if this is a bulk send (same subject on same day = same mail to multiple recipients)
+                  bulk_recipient_count = 0
+                  if queued_message.message.subject.present?
+                    bulk_where = {
+                      :scope => 'outgoing',
+                      :credential_id => cred.id,
+                      :subject => queued_message.message.subject,
+                      :timestamp => { :greater_than => day_start, :less_than_or_equal_to => day_end }
+                    }
+                    bulk_messages = queued_message.server.message_db.select(:messages, :where => bulk_where, :fields => [:id, :rcpt_to])
+                    bulk_recipient_count = bulk_messages.map { |m| m['rcpt_to'] }.compact.uniq.count
+                  end
+                  
+                  # Only hold if:
+                  # - At least 3 other compromise patterns found for same day, OR
+                  # - Bulk send with more than 20 recipients
+                  min_patterns_required = (Postal.config.general.compromise.min_patterns_for_hold rescue 3).to_i
+                  bulk_threshold = (Postal.config.general.compromise.bulk_hold_threshold rescue 20).to_i
+                  
+                  if day_compromise_count >= min_patterns_required || bulk_recipient_count > bulk_threshold
                     cred.update(:hold => true)
                     WebhookRequest.trigger(
                       queued_message.server,
@@ -400,24 +441,35 @@ class UnqueueMessageJob < Postal::Job
                         :reason => 'Compromise suspected',
                         :detection_codes => detection.codes,
                         :detection_descriptions => detection.descriptions,
-                        :count_last_hour => suspicious_unique
+                        :count_last_hour => suspicious_unique,
+                        :count_same_day => day_compromise_count,
+                        :bulk_recipient_count => bulk_recipient_count
                       }
                     )
+                    queued_message.message.create_delivery('Held', :details => "Message held due to suspected credential compromise")
+                    queued_message.destroy
+                    next
                   else
-                    queued_message.server.suspend("Compromise suspected")
-                    WebhookRequest.trigger(
-                      queued_message.server,
-                      'ServerSuspended',
-                      {
-                        :server => queued_message.server.webhook_hash,
-                        :message => queued_message.message.webhook_hash,
-                        :reason => 'Compromise suspected',
-                        :detection_codes => detection.codes,
-                        :detection_descriptions => detection.descriptions,
-                        :count_last_hour => suspicious_unique
-                      }
-                    )
+                    log "#{log_prefix} Compromise detected but not holding credential: only #{day_compromise_count} patterns today (need #{min_patterns_required}), bulk recipients: #{bulk_recipient_count} (need >#{bulk_threshold})"
+                    # Still hold the message even if we don't hold the credential
+                    queued_message.message.create_delivery('Held', :details => "Message held due to suspected credential compromise (insufficient patterns for credential hold)")
+                    queued_message.destroy
+                    next
                   end
+                elsif should_hold
+                  queued_message.server.suspend("Compromise suspected")
+                  WebhookRequest.trigger(
+                    queued_message.server,
+                    'ServerSuspended',
+                    {
+                      :server => queued_message.server.webhook_hash,
+                      :message => queued_message.message.webhook_hash,
+                      :reason => 'Compromise suspected',
+                      :detection_codes => detection.codes,
+                      :detection_descriptions => detection.descriptions,
+                      :count_last_hour => suspicious_unique
+                    }
+                  )
                   queued_message.message.create_delivery('Held', :details => "Message held due to suspected credential compromise")
                   queued_message.destroy
                   next
