@@ -74,9 +74,14 @@ module Postal
       bitcoin_detected = false
       if bitcoin_match
         match_pos = bitcoin_match.begin(0)
+        match_text = bitcoin_match[0]
         context_before = text[[0, match_pos - 50].max, 50].to_s
+        context_after = text[match_pos + match_text.length, 20].to_s
         url_indicators = %r{(https?://|www\.|\.(com|org|net|io|meet)/|@[a-z0-9])}
-        bitcoin_detected = !(context_before =~ url_indicators)
+        transaction_pattern = %r{(tx|transaction|ref|reference|id|meeting|meet)[\s:=#-]}i
+        is_url_context = context_before =~ url_indicators || context_after =~ %r{(/|@|\.(com|org|net|io))}
+        is_transaction_id = context_before =~ transaction_pattern || context_after =~ transaction_pattern
+        bitcoin_detected = !(is_url_context || is_transaction_id)
       end
       if bitcoin_detected
         codes << 'COMPROMISE_BITCOIN'
@@ -93,7 +98,7 @@ module Postal
       end
 
       blackmail_phrases = (Postal.config.general.compromise.blackmail_phrases rescue nil) || [
-        'blackmail', 'i hacked', 'i have hacked', 'recorded you', 'send to your contacts'
+        'blackmail', 'i hacked', 'i have hacked', 'recorded you', 'send to (all )?your contacts?'
       ]
       payment_phrases = (Postal.config.general.compromise.blackmail_payment_phrases rescue nil) || [
         'pay\s*bitcoin', 'send\s*bitcoin'
@@ -117,8 +122,13 @@ module Postal
         if (m = text.match(/\b([A-Za-z0-9+\/]{#{min_blob_len},}={0,2})\b/))
           blob = m[1]
           if blob.include?('+') || blob.include?('/') || blob.include?('=')
-            codes << 'COMPROMISE_BASE64_BLOB'
-            descs << 'Large base64-like blob'
+            match_pos = m.begin(1)
+            context_before = text[[0, match_pos - 30].max, 30].to_s
+            url_indicators = %r{(https?://|www\.|api[_-]?key|token|secret|authorization|bearer|data:)}
+            unless context_before =~ url_indicators
+              codes << 'COMPROMISE_BASE64_BLOB'
+              descs << 'Large base64-like blob'
+            end
           end
         end
       end
