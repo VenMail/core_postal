@@ -5,7 +5,13 @@ module HasMessage
   end
 
   def message
-    @message ||= self.server.message_db.message(self.message_id)
+    return @message if defined?(@message)
+
+    @message = begin
+      self.server.message_db.message(self.message_id)
+    rescue Postal::MessageDB::Message::NotFound
+      nil
+    end
   end
 
   def message=(message)

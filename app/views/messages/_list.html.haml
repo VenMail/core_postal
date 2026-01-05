@@ -2,6 +2,7 @@
   - for message in messages
     - if message.is_a?(QueuedMessage)
       - message = message.message
+    - next unless message
     %li.messageList__message
       = link_to organization_server_message_path(organization, @server, message.id), :class => 'messageList__link' do
         .messageList__details{:class => 'messageList__details--' + message.scope}
