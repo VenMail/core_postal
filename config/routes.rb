@@ -38,6 +38,7 @@ Rails.application.routes.draw do
         get :spam_checks, :on => :member
         post :retry, :on => :member
         post :cancel_hold, :on => :member
+        post :ban_ip, :on => :member
         get :suppressions, :on => :collection
         delete :remove_from_queue, :on => :member
         get :deliveries, :on => :member

@@ -8,7 +8,7 @@
 
   before_action { @server = organization.servers.present.find_by_permalink!(params[:server_id]) }
   before_action { params[:id] && @message = @server.message_db.message(params[:id].to_i) }
-  before_action :admin_required, :only => [:recall]
+  before_action :admin_required, :only => [:recall, :ban_ip]
 
   def new
     if params[:direction] == 'incoming'
@@ -69,11 +69,12 @@
   end
 
   def recall
-    recall_params = params.fetch(:recall, {}).to_h
+    recall_params = params.fetch(:recall, {}).permit(:phrase, :hours, :subject, :body, :search_scope).to_h
     phrase = recall_params[:phrase].to_s.strip
     hours = recall_params[:hours].to_i
     recall_subject = recall_params[:subject].to_s.strip
     recall_body = recall_params[:body].to_s.strip
+    search_scope = recall_params[:search_scope].presence == 'subject' ? 'subject' : 'body'
 
     if phrase.blank? || recall_subject.blank? || recall_body.blank? || hours <= 0
       redirect_to_with_json [:outgoing, organization, @server, :messages], :alert => "Please provide a phrase, time window (>0 hours), subject and body."
@@ -102,13 +103,26 @@
       break if records.empty?
 
       records.each do |message|
-        raw = message.raw_message.to_s
-        next if raw.blank?
-        if raw.downcase.include?(phrase_downcased) && message.rcpt_to.present?
-          # Skip if recipient is on suppression list
-          unless @server.message_db.suppression_list.get(:recipient, message.rcpt_to)
-            recipients << message.rcpt_to
+        subject_text = message.subject.to_s.downcase
+        decoded_body = [message.html_body, message.plain_body].compact.join("\n")
+        body_text = if decoded_body.present?
+                      decoded_body
+                    else
+                      message.raw_message.to_s
+                    end.to_s.downcase
+
+        matches_phrase =
+          if search_scope == 'subject'
+            subject_text.include?(phrase_downcased)
+          else
+            body_text.include?(phrase_downcased) || subject_text.include?(phrase_downcased)
           end
+
+        next unless matches_phrase && message.rcpt_to.present?
+
+        # Skip if recipient is on suppression list
+        unless @server.message_db.suppression_list.get(:recipient, message.rcpt_to)
+          recipients << message.rcpt_to
         end
       end
 
@@ -116,15 +130,44 @@
       page += 1
     end
 
+    sent = 0
+    failures = []
+    from_address = @server.postmaster_address.presence
+    if from_address.blank?
+      if (domain = @server.domains.verified.order(:name).first)
+        from_address = "postmaster@#{domain.name}"
+      else
+        from_address = current_user.email_address
+      end
+    end
+
     recipients.each do |recipient|
-      AppMailer.recall_notice(recipient, recall_subject, recall_body).deliver
+      begin
+        prototype = OutgoingMessagePrototype.new(@server, request.ip, 'recall', {
+          :from => from_address,
+          :to => recipient,
+          :subject => recall_subject,
+          :plain_body => recall_body
+        })
+        if result = prototype.create_message(recipient)
+          sent += 1
+        else
+          failures << recipient
+        end
+      rescue => e
+        Rails.logger.error("Recall enqueue failed for #{recipient}: #{e.class} #{e.message}")
+        failures << recipient
+      end
     end
 
     notice = if recipients.empty?
                "No recipients matched that phrase in the last #{hours} hours."
              else
-               "Recall notice sent to #{recipients.size} recipient#{'s' if recipients.size != 1} from the last #{hours} hours."
+               "Recall notice sent to #{sent} of #{recipients.size} recipient#{'s' if recipients.size != 1} from the last #{hours} hours."
              end
+    unless failures.empty?
+      notice += " Failed for: #{failures.join(', ')} (see logs)."
+    end
     redirect_to_with_json [:outgoing, organization, @server, :messages], :notice => notice
   end
 
@@ -194,6 +237,17 @@
   def cancel_hold
     @message.cancel_hold
     redirect_to_with_json organization_server_message_path(organization, @server, @message.id)
+  end
+
+  def ban_ip
+    ip = params[:ip].to_s.strip
+    if ip.blank?
+      redirect_to_with_json [:headers, organization, @server, @message.id], :alert => "No IP provided to ban."
+      return
+    end
+
+    @server.message_db.suppression_list.add(:ip, ip, :reason => "Manual IP ban from message view")
+    redirect_to_with_json [:headers, organization, @server, @message.id], :notice => "IP #{ip} added to suppression list."
   end
 
   def remove_from_queue

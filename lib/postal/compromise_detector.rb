@@ -7,6 +7,7 @@ module Postal
       COMPROMISE_EMPTY
       COMPROMISE_GIBBERISH
       COMPROMISE_BASE64_BLOB
+      COMPROMISE_SOCIAL_SECURITY_SPOOF
     ].freeze
 
     DEFAULT_STRONG_CODES = %w[COMPROMISE_BITCOIN COMPROMISE_BLACKMAIL].freeze
@@ -29,7 +30,7 @@ module Postal
       codes = Array(cfg).map(&:to_s).map(&:strip).reject(&:empty?)
       return codes if codes.any?
 
-      (strong_codes + %w[COMPROMISE_BASE64_BLOB]).uniq
+      (strong_codes + %w[COMPROMISE_BASE64_BLOB COMPROMISE_SOCIAL_SECURITY_SPOOF]).uniq
     end
 
     Result = Struct.new(:codes, :descriptions) do
@@ -97,6 +98,37 @@ module Postal
         descs << 'Pornographic slang density'
       end
 
+      government_claim_patterns = [
+        /social\s+security/i,
+        /ssa[-\s]?1099/i,
+        /benefit\s+statement/i,
+        /ssa[-\s]?1099[\s\-]?form/i,
+        /social\s+security\s+administration/i,
+        /medicare\s+(deductions?|premiums?)/i,
+        /medicaid/i,
+        /official\s+(statement|notice|document)/i,
+        /benefits?\s+(paid|pay(ment)?s?|available|eligib(le|ility))/i,
+        /\b1099[\-\s]?(ssa|gov)\b/i,
+        /\btax\b.+(ssa|irs|treasury|refund|rebate|payment|stimulus)/i,
+        /internal\s+revenue\s+service/i,
+        /\birs\b/i,
+        /tax\s+(refund|rebate)/i,
+        /stimulus\s+payment/i,
+        /treasury\s+department/i,
+        /unemployment\s+benefits?/i,
+        /department\s+of\s+labor/i,
+        /federal\s+(grant|assistance|relief|payment)/i,
+        /government\s+(assistance|grant|relief|benefit|payment)/i,
+        /call\s+1[-\s]?(800|888|877|866|855|844|833)[-\s]?\d{3}[-\s]?\d{4}/i
+      ]
+      if government_claim_patterns.any? { |rx| text =~ rx }
+        sender_domain = extract_sender_domain(message)
+        unless authoritative_government_domain?(sender_domain)
+          codes << 'COMPROMISE_SOCIAL_SECURITY_SPOOF'
+          descs << 'Government benefit/authority themed content from non-authoritative sender domain'
+        end
+      end
+
       blackmail_phrases = (Postal.config.general.compromise.blackmail_phrases rescue nil) || [
         'blackmail', 'i hacked', 'i have hacked', 'recorded you', 'send to (all )?your contacts?'
       ]
@@ -148,11 +180,9 @@ module Postal
     end
 
     def extract_text(message)
-      body = message.plain_body || ''
+      body = message.plain_body.to_s
       if body.strip.empty?
-        html = message.html_body || ''
-        html = html.to_s
-        html = html.gsub(/data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+\/=]+/i, ' ')
+        html = message.html_body rescue nil
         body = html.gsub(/<[^>]+>/, ' ')
         body = CGI.unescapeHTML(body) rescue body
       end
@@ -162,6 +192,19 @@ module Postal
 
     def config_value(section, key)
       Postal.config.general.compromise.send(section).send(key) rescue nil
+    end
+
+    def extract_sender_domain(message)
+      address = message.mail_from || message.from rescue nil
+      raw = address.to_s
+      domain = raw[/@([^>\s;]+)/, 1] || raw.split('@').last
+      domain.to_s.downcase.gsub(/[^\w\.-]/, '')
+    end
+
+    def authoritative_government_domain?(domain)
+      return false if domain.blank?
+      # Accept .gov, .gov.xx, .gov.xx.xx, and .mil variants only (avoid foo.gov.evil.com)
+      !!(domain =~ /\A([a-z0-9-]+\.)*(gov|mil)(\.[a-z]{2,3}){0,2}\z/i)
     end
   end
 end

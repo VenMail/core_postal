@@ -34,4 +34,69 @@ describe Postal::CompromiseDetector do
     end
   end
 
+  it "flags social security themed content from non-authoritative domains" do
+    with_global_server do |server|
+      body = <<~BODY
+        Social Security Benefit Statement Created
+        Generated on 09/01/2026
+
+        Dear Beneficiary (reneeu@roadrunner.com),
+
+        This is your official 2025 SSA-1099 form from the Social Security Administration. It securely details benefits paid, Medicare deductions, and taxable amounts.
+      BODY
+
+      message = create_plain_text_message(
+        server,
+        body,
+        'victim@example.com',
+        { subject: 'Your Social Security Benefit Statement', from: 'ssa-updates@example.com' }
+      )
+
+      detector = Postal::CompromiseDetector.new
+      result = detector.analyze(message)
+
+      expect(result.codes).to include('COMPROMISE_SOCIAL_SECURITY_SPOOF')
+      expect(result.suspicious?).to be true
+      expect(result.strong?).to be false
+    end
+  end
+
+  it "does not flag social security content from authoritative .gov sender" do
+    with_global_server do |server|
+      body = "Official notice from the Social Security Administration about your SSA-1099 form."
+      message = create_plain_text_message(
+        server,
+        body,
+        'victim@example.com',
+        { subject: 'SSA-1099 Notice', from: 'no-reply@ssa.gov' }
+      )
+
+      detector = Postal::CompromiseDetector.new
+      result = detector.analyze(message)
+
+      expect(result.codes).not_to include('COMPROMISE_SOCIAL_SECURITY_SPOOF')
+    end
+  end
+
+  it "flags broader government-claim content (IRS/benefits) from non-government domains" do
+    with_global_server do |server|
+      body = <<~BODY
+        Internal Revenue Service notification of tax refund eligibility.
+        Call 1-800-772-1213 to claim your stimulus payment.
+      BODY
+
+      message = create_plain_text_message(
+        server,
+        body,
+        'victim@example.com',
+        { subject: 'IRS Tax Refund Notice', from: 'refunds@irs-support.com' }
+      )
+
+      detector = Postal::CompromiseDetector.new
+      result = detector.analyze(message)
+
+      expect(result.codes).to include('COMPROMISE_SOCIAL_SECURITY_SPOOF')
+      expect(result.suspicious?).to be true
+    end
+  end
 end

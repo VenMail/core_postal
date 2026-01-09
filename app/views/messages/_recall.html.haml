@@ -4,7 +4,7 @@
     %p.u-muted
       Search outgoing messages for a phrase within a time window and send a recall/warning message to every recipient that matches.
   .card__body
-    = form_tag organization_server_messages_recall_path(organization, @server), :method => :post, :class => 'fieldSet', :remote => true do
+    = form_tag recall_organization_server_messages_path(organization, @server), :method => :post, :class => 'fieldSet', :remote => true do
       .fieldSet__field
         = label_tag 'recall[phrase]', 'Search phrase', :class => 'fieldSet__label'
         .fieldSet__input
@@ -15,6 +15,13 @@
         .fieldSet__input
           = number_field_tag 'recall[hours]', params.dig(:recall, :hours) || 48, :class => 'input input--text', :min => 1, :step => 1, :required => true
           %p.fieldSet__text Look back this many hours for outgoing messages containing the phrase.
+      .fieldSet__field
+        = label_tag 'recall[search_scope]', 'Search in', :class => 'fieldSet__label'
+        .fieldSet__input
+          = select_tag 'recall[search_scope]',
+            options_for_select([['Body (default)', 'body'], ['Subject', 'subject']], params.dig(:recall, :search_scope) || 'body'),
+            :class => 'input input--text'
+          %p.fieldSet__text Choose whether to search the outgoing message body or just the subject line.
       .fieldSet__field
         = label_tag 'recall[subject]', 'Subject to send', :class => 'fieldSet__label'
         .fieldSet__input

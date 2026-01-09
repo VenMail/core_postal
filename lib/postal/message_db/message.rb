@@ -340,6 +340,24 @@ module Postal
       end
 
       #
+      # Extract sender IP from Received headers (best-effort)
+      #
+      def sender_ip
+        received = headers['received'] || []
+        text = Array(received).join("\n")
+        return nil if text.empty?
+
+        # Prefer IPv4 first, then IPv6
+        if (m = text.match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/))
+          m[1]
+        elsif (m6 = text.match(/\b([a-f0-9:]{3,}:[a-f0-9:]+)\b/i))
+          m6[1]
+        end
+      rescue
+        nil
+      end
+
+      #
       # Return the recipient domain for this message
       #
       def recipient_domain
