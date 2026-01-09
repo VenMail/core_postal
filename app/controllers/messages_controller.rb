@@ -105,7 +105,10 @@
         raw = message.raw_message.to_s
         next if raw.blank?
         if raw.downcase.include?(phrase_downcased) && message.rcpt_to.present?
-          recipients << message.rcpt_to
+          # Skip if recipient is on suppression list
+          unless @server.message_db.suppression_list.get(:recipient, message.rcpt_to)
+            recipients << message.rcpt_to
+          end
         end
       end
 
