@@ -12,7 +12,7 @@ services:
       - "./mail:/mail"
     environment:
       POSTAL_CONFIG_ROOT: /config
-      RAILS_ENV: test
+      POSTAL_ENV: test
       KATAPULT_CONFIG_FILE: /ci-config.yml
       WAIT_FOR_TIMEOUT: 90
       WAIT_FOR_TARGETS: |-
