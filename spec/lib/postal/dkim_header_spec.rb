@@ -7,9 +7,12 @@ describe Postal::DKIMHeader do
   examples = Rails.root.join('spec/examples/dkim_signing/*.msg')
   Dir[examples].each do |path|
     contents = File.read(path)
-    frontmatter, email = contents.split(/^---\n/m, 2)
-    frontmatter = YAML.load(frontmatter)
-    email.strip
+    # puts "DEBUG: Contents length: #{contents.length}"
+    # puts "DEBUG: Contains ---\\n: #{contents.include?("---\n")}"
+    parts = contents.split(/^---\n/m, 2)
+    # puts "DEBUG: Parts length: #{parts.length}"
+    frontmatter = YAML.load(parts[0])
+    email = (parts[1] || '').strip
     it "works with #{path.split('/').last}" do
       mocked_time = Time.at(frontmatter['time'].to_i)
       allow(Time).to receive(:now).and_return(mocked_time)
