@@ -105,7 +105,7 @@ ci-test: docker-ci-build
 	$(eval IMAGE := $(shell $(DOCKER_CI_BUILD_CMD) -q))
 	$(eval RAND := $(shell echo "$${RANDOM}$$(date +%s)"))
 	POSTAL_IMAGE=$(IMAGE) \
-	docker compose -p "postal$(RAND)" run --rm postal sh -c 'bundle exec rspec'; \
+	docker compose -p "postal$(RAND)" run --rm postal sh -c 'bin/rails db:migrate RAILS_ENV=test && bundle exec rspec'; \
 	EXIT_CODE=$$?; \
 	docker compose -p "postal$(RAND)" down -v; \
 	exit $$EXIT_CODE
