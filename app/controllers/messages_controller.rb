@@ -1,9 +1,14 @@
   class MessagesController < ApplicationController
 
   include WithinOrganization
+  require 'set'
+
+  MAX_RECALL_HOURS = 72
+  RECALL_RECALL_PAGE_SIZE = 500
 
   before_action { @server = organization.servers.present.find_by_permalink!(params[:server_id]) }
   before_action { params[:id] && @message = @server.message_db.message(params[:id].to_i) }
+  before_action :admin_required, :only => [:recall]
 
   def new
     if params[:direction] == 'incoming'
@@ -52,6 +57,7 @@
 
   def outgoing
     @searchable = true
+    @allow_recall = current_user.admin?
     get_messages('outgoing')
     respond_to do |wants|
       wants.html
@@ -60,6 +66,63 @@
         :region_html => render_to_string(:partial => 'index', :formats => [:html])
       }}
     end
+  end
+
+  def recall
+    recall_params = params.fetch(:recall, {}).to_h
+    phrase = recall_params[:phrase].to_s.strip
+    hours = recall_params[:hours].to_i
+    recall_subject = recall_params[:subject].to_s.strip
+    recall_body = recall_params[:body].to_s.strip
+
+    if phrase.blank? || recall_subject.blank? || recall_body.blank? || hours <= 0
+      redirect_to_with_json [:outgoing, organization, @server, :messages], :alert => "Please provide a phrase, time window (>0 hours), subject and body."
+      return
+    end
+
+    if hours > MAX_RECALL_HOURS
+      redirect_to_with_json [:outgoing, organization, @server, :messages], :alert => "Time frame too large. Please choose #{MAX_RECALL_HOURS} hours or fewer."
+      return
+    end
+
+    since_time = hours.hours.ago
+    recipients = Set.new
+    phrase_downcased = phrase.downcase
+    page = 1
+
+    loop do
+      page_data = @server.message_db.messages_with_pagination(
+        page,
+        :where => {:scope => 'outgoing', :timestamp => { :greater_than => since_time.to_f }},
+        :order => :timestamp,
+        :direction => 'desc',
+        :per_page => RECALL_RECALL_PAGE_SIZE
+      )
+      records = page_data[:records] || []
+      break if records.empty?
+
+      records.each do |message|
+        raw = message.raw_message.to_s
+        next if raw.blank?
+        if raw.downcase.include?(phrase_downcased) && message.rcpt_to.present?
+          recipients << message.rcpt_to
+        end
+      end
+
+      break if page >= (page_data[:total_pages] || 1)
+      page += 1
+    end
+
+    recipients.each do |recipient|
+      AppMailer.recall_notice(recipient, recall_subject, recall_body).deliver
+    end
+
+    notice = if recipients.empty?
+               "No recipients matched that phrase in the last #{hours} hours."
+             else
+               "Recall notice sent to #{recipients.size} recipient#{'s' if recipients.size != 1} from the last #{hours} hours."
+             end
+    redirect_to_with_json [:outgoing, organization, @server, :messages], :notice => notice
   end
 
   def incoming

@@ -23,6 +23,7 @@ Rails.application.routes.draw do
       resources :address_endpoints
       resources :ip_pool_rules
       resources :messages do
+        post :recall, :on => :collection
         get :incoming, :on => :collection
         get :outgoing, :on => :collection
         get :held, :on => :collection

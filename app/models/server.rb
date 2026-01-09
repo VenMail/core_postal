@@ -176,6 +176,11 @@ class Server < ApplicationRecord
     [total, unverified, bad_dns]
   end
 
+  def has_verified_route_for?(domain)
+    return false if domain.nil?
+    routes.includes(:domain).where(:domains => { :id => domain.id }).exists?
+  end
+
   def webhook_hash
     {
       :uuid => self.uuid,

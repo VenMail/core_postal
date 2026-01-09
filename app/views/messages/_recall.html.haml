@@ -1,0 +1,27 @@
+.card
+  .card__header
+    %h3 Recall / Warning blast
+    %p.u-muted
+      Search outgoing messages for a phrase within a time window and send a recall/warning message to every recipient that matches.
+  .card__body
+    = form_tag organization_server_messages_recall_path(organization, @server), :method => :post, :class => 'fieldSet', :remote => true do
+      .fieldSet__field
+        = label_tag 'recall[phrase]', 'Search phrase', :class => 'fieldSet__label'
+        .fieldSet__input
+          = text_field_tag 'recall[phrase]', params.dig(:recall, :phrase), :class => 'input input--text', :placeholder => "e.g. Your social security", :required => true
+          %p.fieldSet__text Phrase to match anywhere in the outgoing message (case-insensitive).
+      .fieldSet__field
+        = label_tag 'recall[hours]', 'Time frame (hours)', :class => 'fieldSet__label'
+        .fieldSet__input
+          = number_field_tag 'recall[hours]', params.dig(:recall, :hours) || 48, :class => 'input input--text', :min => 1, :step => 1, :required => true
+          %p.fieldSet__text Look back this many hours for outgoing messages containing the phrase.
+      .fieldSet__field
+        = label_tag 'recall[subject]', 'Subject to send', :class => 'fieldSet__label'
+        .fieldSet__input
+          = text_field_tag 'recall[subject]', params.dig(:recall, :subject), :class => 'input input--text', :placeholder => "SPAM WARNING: Message Recall", :required => true
+      .fieldSet__field
+        = label_tag 'recall[body]', 'Message body', :class => 'fieldSet__label'
+        .fieldSet__input
+          = text_area_tag 'recall[body]', params.dig(:recall, :body), :class => 'input input--text', :placeholder => "Our security systems detected a phishing attempt ...", :rows => 4, :required => true
+      .fieldSet__actions
+        = submit_tag 'Send recall notice', :class => 'button button--primary', :data => {:disable_with => 'Sending...'}

@@ -35,6 +35,12 @@
               By default, outgoing messages aren't scanned for spam. You can specify a threshold here and outgoing messages that exceed this will
               not be permitted to be sent through the mail server.
         .fieldSet__field
+          = f.label :block_outgoing_without_verified_route, "Block outgoing without verified route", :class => 'fieldSet__label'
+          .fieldSet__input
+            = f.select :block_outgoing_without_verified_route, [["No", false], ["Yes - require verified incoming route", true]], {}, :class => 'input input--select'
+            %p.fieldSet__text
+              If enabled, outgoing messages are blocked unless their domain has at least one verified incoming route on this server.
+        .fieldSet__field
           = f.label :message_retention_days, :class => 'fieldSet__label'
           .fieldSet__input
             = f.text_field :message_retention_days, :class => 'input input--text'

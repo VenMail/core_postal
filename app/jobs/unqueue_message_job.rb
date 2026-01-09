@@ -299,6 +299,13 @@ class UnqueueMessageJob < Postal::Job
                 next
               end
 
+              if queued_message.server.block_outgoing_without_verified_route? && !queued_message.server.has_verified_route_for?(queued_message.message.domain)
+                log "#{log_prefix} Outgoing blocked because domain has no verified incoming route."
+                queued_message.message.create_delivery('HardFail', :details => "Outgoing blocked: domain has no verified incoming route on this server.")
+                queued_message.destroy
+                next
+              end
+
               #
               # If there's no to address, we can't do much. Fail it.
               #

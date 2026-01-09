@@ -4,6 +4,9 @@
 = render 'servers/sidebar', :active_server => @server
 = render 'servers/header', :active_nav => :messages
 = render 'header', :active_nav => :outgoing
+- if @allow_recall
+  .pageContent.pageContent--compact
+    = render 'recall'
 - if @messages[:records].empty? && !@queried
   .pageContent--compact
     .noData.noData--clean

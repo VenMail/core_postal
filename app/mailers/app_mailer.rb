@@ -44,6 +44,10 @@ class AppMailer < ApplicationMailer
     mail :to => @server.organization.notification_addresses, :subject => "[#{server.full_permalink}] Your mail server has been suspended"
   end
 
+  def recall_notice(recipient, subject, body)
+    @body = body
+    mail :to => recipient, :subject => subject
+  end
   def test_message(recipient)
     mail :to => recipient, :subject => "VenMail SMTP Test Message"
   end
