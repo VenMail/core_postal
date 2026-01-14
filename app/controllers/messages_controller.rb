@@ -143,17 +143,9 @@
 
     recipients.each do |recipient|
       begin
-        prototype = OutgoingMessagePrototype.new(@server, request.ip, 'recall', {
-          :from => from_address,
-          :to => recipient,
-          :subject => recall_subject,
-          :plain_body => recall_body
-        })
-        if result = prototype.create_message(recipient)
-          sent += 1
-        else
-          failures << recipient
-        end
+        mail = AppMailer.recall_notice(recipient, recall_subject, recall_body)
+        mail.deliver
+        sent += 1
       rescue => e
         Rails.logger.error("Recall enqueue failed for #{recipient}: #{e.class} #{e.message}")
         failures << recipient
@@ -163,7 +155,7 @@
     notice = if recipients.empty?
                "No recipients matched that phrase in the last #{hours} hours."
              else
-               "Recall notice sent to #{sent} of #{recipients.size} recipient#{'s' if recipients.size != 1} from the last #{hours} hours."
+               "Recall notice sent to #{sent} recipient#{'s' if sent != 1} from the last #{hours} hours."
              end
     unless failures.empty?
       notice += " Failed for: #{failures.join(', ')} (see logs)."

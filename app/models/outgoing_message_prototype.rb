@@ -190,7 +190,7 @@ class OutgoingMessagePrototype
     message.scope = 'outgoing'
     message.rcpt_to = address
     message.mail_from = self.from_address
-    message.domain_id = self.domain.id
+    message.domain_id = self.domain&.id
     message.raw_message = self.raw_message
     message.tag = self.tag
     message.credential_id = self.credential&.id
