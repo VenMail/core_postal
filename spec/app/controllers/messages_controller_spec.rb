@@ -142,7 +142,7 @@ describe MessagesController, type: :controller do
         message = create_plain_text_message(server, 'Test message', 'recipient@example.com')
         message.update(held: 1)
 
-        expect(message).to receive(:add_to_message_queue).with(manual: true)
+        expect_any_instance_of(Postal::MessageDB::Message).to receive(:add_to_message_queue).with(manual: true)
 
         post :retry, params: {
           org_permalink: server.organization.permalink,
@@ -237,8 +237,8 @@ describe MessagesController, type: :controller do
         allow_any_instance_of(ApplicationController).to receive(:current_user).and_return(user)
 
         message = create_plain_text_message(server, 'Test message', 'recipient@example.com')
-        # Simulate message without raw message
-        allow(message).to receive(:raw_message?).and_return(false)
+        # Stub the raw_message? method on any message instance the controller might load
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:raw_message?).and_return(false)
 
         post :retry, params: {
           org_permalink: server.organization.permalink,
@@ -298,7 +298,7 @@ describe MessagesController, type: :controller do
         ip_address = IPAddress.create!(ipv4: '192.168.1.100', hostname: 'mail.example.com', priority: 100, ip_pool: server.ip_pool)
 
         new_queued_message = double('queued_message')
-        expect(message).to receive(:add_to_message_queue).with(manual: true).and_return(new_queued_message)
+        expect_any_instance_of(Postal::MessageDB::Message).to receive(:add_to_message_queue).with(manual: true).and_return(new_queued_message)
         expect(new_queued_message).to receive(:update_column).with(:ip_address_id, ip_address.id.to_s)
 
         post :retry_with_ip, params: {
@@ -322,7 +322,8 @@ describe MessagesController, type: :controller do
         allow_any_instance_of(ApplicationController).to receive(:current_user).and_return(user)
 
         message = create_plain_text_message(server, 'Test message', 'recipient@example.com')
-        allow(message).to receive(:raw_message?).and_return(false)
+        # Stub the raw_message? method on any message instance the controller might load
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:raw_message?).and_return(false)
 
         post :retry_with_ip, params: {
           org_permalink: server.organization.permalink,
