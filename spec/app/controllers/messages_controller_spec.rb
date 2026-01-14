@@ -213,7 +213,9 @@ describe MessagesController, type: :controller do
         )
         
         # Mock IP allocation to return the same IP when no alternatives exist
-        original_ip = IPAddress.create!(ipv4: '10.0.0.5', hostname: 'same.example.com', priority: 50, ip_pool: server.ip_pool)
+        single_ip_pool = server.ip_pool || IPPool.create!(name: 'Single IP Pool')
+        allow(server).to receive(:ip_pool).and_return(single_ip_pool)
+        original_ip = IPAddress.create!(ipv4: '10.0.0.5', hostname: 'same.example.com', priority: 50, ip_pool: single_ip_pool)
         queued_message.update(ip_address: original_ip)
         
         allow_any_instance_of(Postal::MessageDB::Message).to receive(:queued_message).and_return(queued_message)
