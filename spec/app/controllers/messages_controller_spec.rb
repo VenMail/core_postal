@@ -114,6 +114,8 @@ describe MessagesController, type: :controller do
           domain: 'example.com',
           manual: false
         )
+
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:queued_message).and_return(queued_message)
         
         # Mock IP allocation to ensure it gets called
         expect(queued_message).to receive(:allocate_ip_address).with(exclude_current: true)
@@ -142,6 +144,8 @@ describe MessagesController, type: :controller do
         message = create_plain_text_message(server, 'Test message', 'recipient@example.com')
         message.update(held: 1)
 
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:queued_message).and_return(nil)
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:held?).and_return(true)
         expect_any_instance_of(Postal::MessageDB::Message).to receive(:add_to_message_queue).with(manual: true)
 
         post :retry, params: {
@@ -170,6 +174,8 @@ describe MessagesController, type: :controller do
           domain: 'example.com',
           manual: false
         )
+
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:queued_message).and_return(queued_message)
         
         # Mock IP pools to be disabled
         allow(Postal).to receive(:ip_pools?).and_return(false)
@@ -268,6 +274,8 @@ describe MessagesController, type: :controller do
           domain: 'example.com',
           manual: false
         )
+
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:queued_message).and_return(queued_message)
         ip_address = IPAddress.create!(ipv4: '192.168.1.100', hostname: 'mail.example.com', priority: 100, ip_pool: server.ip_pool)
 
         expect(queued_message).to receive(:update_column).with(:ip_address_id, ip_address.id.to_s)
@@ -298,6 +306,8 @@ describe MessagesController, type: :controller do
         ip_address = IPAddress.create!(ipv4: '192.168.1.100', hostname: 'mail.example.com', priority: 100, ip_pool: server.ip_pool)
 
         new_queued_message = double('queued_message')
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:queued_message).and_return(nil)
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:held?).and_return(true)
         expect_any_instance_of(Postal::MessageDB::Message).to receive(:add_to_message_queue).with(manual: true).and_return(new_queued_message)
         expect(new_queued_message).to receive(:update_column).with(:ip_address_id, ip_address.id.to_s)
 
