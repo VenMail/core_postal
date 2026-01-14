@@ -37,6 +37,7 @@ Rails.application.routes.draw do
         get :download, :on => :member
         get :spam_checks, :on => :member
         post :retry, :on => :member
+        post :retry_with_ip, :on => :member
         post :cancel_hold, :on => :member
         post :ban_ip, :on => :member
         get :suppressions, :on => :collection

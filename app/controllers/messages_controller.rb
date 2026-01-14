@@ -211,8 +211,10 @@
   def retry
     if @message.raw_message?
       if @message.queued_message
+        @message.queued_message.allocate_ip_address(exclude_current: true)
+        @message.queued_message.update_column(:ip_address_id, @message.queued_message.ip_address&.id)
         @message.queued_message.queue!
-        flash[:notice] = "This message will be retried shortly."
+        flash[:notice] = "This message will be retried shortly with a new IP address."
       elsif @message.held?
         @message.add_to_message_queue(:manual => true)
         flash[:notice] = "This message has been released. Delivery will be attempted shortly."
@@ -224,6 +226,34 @@
       flash[:alert] = "This message is no longer available."
     end
     redirect_to_with_json organization_server_message_path(organization, @server, @message.id)
+  end
+
+  def retry_with_ip
+    ip_address_id = params[:ip_address_id]
+    
+    if @message.raw_message?
+      if @message.queued_message
+        # Set the specific IP address
+        @message.queued_message.update_column(:ip_address_id, ip_address_id)
+        @message.queued_message.queue!
+        flash[:notice] = "This message will be retried shortly with the selected IP address."
+      elsif @message.held?
+        queued_message = @message.add_to_message_queue(:manual => true)
+        queued_message.update_column(:ip_address_id, ip_address_id)
+        flash[:notice] = "This message has been released and will be retried with the selected IP address."
+      else
+        queued_message = @message.add_to_message_queue(:manual => true)
+        queued_message.update_column(:ip_address_id, ip_address_id)
+        flash[:notice] = "This message will be redelivered with the selected IP address."
+      end
+    else
+      flash[:alert] = "This message is no longer available."
+    end
+    
+    respond_to do |format|
+      format.html { redirect_to organization_server_message_path(organization, @server, @message.id) }
+      format.json { render :json => {:flash => flash.to_hash} }
+    end
   end
 
   def cancel_hold

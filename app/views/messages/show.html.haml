@@ -74,3 +74,32 @@
     .messagePropertiesPage__right
       = render 'deliveries', :message => @message
 
+/ IP Selector Modal
+.modal.js-ip-selector-modal.is-hidden
+  .modal__overlay.js-modal-close
+  .modal__content
+    .modal__header
+      %h3.modal__title Choose IP Address for Retry
+      %a.modal__close.js-modal-close{:href => "#"} ×
+    .modal__body
+      .ipSelector
+        .ipSelector__loading.is-hidden
+          %p Loading available IP addresses...
+        .ipSelector__content
+          %p Select which IP address to use for retrying this message:
+          .ipSelector__list
+            - @server.ip_pools.each do |pool|
+              - pool.ip_addresses.order_by_priority.each do |ip|
+                .ipSelector__item
+                  %label.ipSelector__label
+                    %input.ipSelector__radio{:type => "radio", :name => "ip_address_id", :value => ip.id, :data => {:ip => ip.ipv4, :hostname => ip.hostname, :priority => ip.priority}}
+                    .ipSelector__info
+                      .ipSelector__ip= ip.ipv4
+                      .ipSelector__details
+                        %span.ipSelector__hostname= ip.hostname
+                        %span.ipSelector__priority Priority: #{ip.priority}
+    .modal__footer
+      .buttonSet
+        = link_to "Cancel", "#", :class => "button button--dark js-modal-close"
+        = link_to "Retry with Selected IP", "#", :class => "button button--positive js-ip-selector-submit", :data => {:message_id => @message.id}
+
