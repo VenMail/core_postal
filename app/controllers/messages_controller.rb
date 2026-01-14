@@ -225,7 +225,7 @@
     else
       flash[:alert] = "This message is no longer available."
     end
-    redirect_to_with_json organization_server_message_path(organization, @server, @message)
+    redirect_to_with_json organization_server_message_path(organization, @server, @message.id)
   end
 
   def retry_with_ip

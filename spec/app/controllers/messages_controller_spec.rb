@@ -126,7 +126,7 @@ describe MessagesController, type: :controller do
           id: message.id
         }
 
-        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message))
+        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message.id))
         expect(flash[:notice]).to include('will be retried shortly with a new IP address')
       end
     end
@@ -134,6 +134,7 @@ describe MessagesController, type: :controller do
     it 'retries a held message' do
       with_global_server do |server|
         user = server.organization.owner
+        user.update!(:admin => true)
 
         allow_any_instance_of(ApplicationController).to receive(:logged_in?).and_return(true)
         allow_any_instance_of(ApplicationController).to receive(:current_user).and_return(user)
@@ -149,7 +150,7 @@ describe MessagesController, type: :controller do
           id: message.id
         }
 
-        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message))
+        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message.id))
         expect(flash[:notice]).to include('has been released')
       end
     end
@@ -184,7 +185,7 @@ describe MessagesController, type: :controller do
           id: message.id
         }
 
-        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message))
+        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message.id))
         expect(flash[:notice]).to include('will be retried shortly with a new IP address')
       end
     end
@@ -222,7 +223,7 @@ describe MessagesController, type: :controller do
           id: message.id
         }
 
-        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message))
+        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message.id))
         expect(flash[:notice]).to include('will be retried shortly with a new IP address')
       end
     end
@@ -230,6 +231,7 @@ describe MessagesController, type: :controller do
     it 'handles retry when message has no raw message' do
       with_global_server do |server|
         user = server.organization.owner
+        user.update!(:admin => true)
 
         allow_any_instance_of(ApplicationController).to receive(:logged_in?).and_return(true)
         allow_any_instance_of(ApplicationController).to receive(:current_user).and_return(user)
@@ -244,7 +246,7 @@ describe MessagesController, type: :controller do
           id: message.id
         }
 
-        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message))
+        expect(response).to redirect_to(organization_server_message_path(server.organization, server, message.id))
         expect(flash[:alert]).to include('no longer available')
       end
     end
@@ -314,6 +316,7 @@ describe MessagesController, type: :controller do
     it 'handles retry with IP when message has no raw message' do
       with_global_server do |server|
         user = server.organization.owner
+        user.update!(:admin => true)
 
         allow_any_instance_of(ApplicationController).to receive(:logged_in?).and_return(true)
         allow_any_instance_of(ApplicationController).to receive(:current_user).and_return(user)
