@@ -271,7 +271,7 @@ class UnqueueMessageJob < Postal::Job
                 if result.retry
                   log "#{log_prefix} Message requeued for trying later."
                   queued_message.retry_later(result.retry.is_a?(Integer) ? result.retry : nil)
-                  queued_message.allocate_ip_address
+                  queued_message.allocate_ip_address(exclude_current: true)
                   queued_message.update_column(:ip_address_id, queued_message.ip_address&.id)
                 else
                   log "#{log_prefix} Message processing completed."

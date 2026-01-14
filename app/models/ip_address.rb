@@ -35,8 +35,10 @@ class IPAddress < ApplicationRecord
 
   class << self
 
-    def select_by_priority
-      order(Arel.sql("RAND() * priority DESC")).first
+    def select_by_priority(exclude_id = nil)
+      scope = exclude_id ? where.not(id: exclude_id) : all
+      candidate = scope.order(Arel.sql("RAND() * priority DESC")).first
+      candidate || find_by(id: exclude_id)
     end
 
   end

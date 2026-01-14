@@ -61,9 +61,13 @@ class QueuedMessage < ApplicationRecord
     end
   end
 
-  def allocate_ip_address
-    if Postal.ip_pools? && self.message && pool = self.server.ip_pool_for_message(self.message)
-      self.ip_address = pool.ip_addresses.select_by_priority
+  def allocate_ip_address(exclude_current: false)
+    return unless Postal.ip_pools?
+    return unless self.message
+
+    if pool = self.server.ip_pool_for_message(self.message)
+      excluded = exclude_current ? self.ip_address_id : nil
+      self.ip_address = pool.ip_addresses.select_by_priority(excluded)
     end
   end
 
