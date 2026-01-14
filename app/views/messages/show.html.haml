@@ -88,7 +88,7 @@
         .ipSelector__content
           %p Select which IP address to use for retrying this message:
           .ipSelector__list
-            - @server.ip_pools.each do |pool|
+            - @server.ip_pools_with_defaults.each do |pool|
               - pool.ip_addresses.order_by_priority.each do |ip|
                 .ipSelector__item
                   %label.ipSelector__label

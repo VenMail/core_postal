@@ -10,6 +10,7 @@ web:
 
 general:
   use_ip_pools: false
+  default_ip_pools: []
   exception_url:
   external_api_base_url: https://api.venmail.io
   maximum_delivery_attempts: 18

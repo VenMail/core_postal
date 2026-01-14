@@ -38,6 +38,7 @@ class Organization < ApplicationRecord
   default_value :permalink, -> { Organization.find_unique_permalink(self.name) if self.name }
 
   belongs_to :owner, :class_name => 'User'
+  belongs_to :ip_pool, :optional => true
   has_many :organization_users, :dependent => :destroy
   has_many :users, :through => :organization_users, :source_type => 'User'
   has_many :user_invites, :through => :organization_users, :source_type => 'UserInvite', :source => :user

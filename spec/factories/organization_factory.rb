@@ -24,9 +24,17 @@
 FactoryBot.define do
 
   factory :organization do
-    name { "Acme Inc" }
-    sequence(:permalink) { |n| "org#{n}" }
-    association :owner, :factory => :user
+    sequence(:name) { |n| "Test Organization #{n}" }
+    sequence(:permalink) { |n| "test-org-#{n}" }
+    time_zone { 'UTC' }
+    association :owner, factory: :user
+
+    trait :with_ip_pool do
+      after(:create) do |org|
+        pool = IPPool.create!(name: "#{org.permalink}-default", default: true)
+        org.ip_pools << pool
+      end
+    end
   end
 
 end

@@ -189,4 +189,8 @@ module Postal
     self.config.general.use_ip_pools?
   end
 
+  def self.default_ip_pool_names
+    Array(self.config.general.default_ip_pools).compact
+  end
+
 end

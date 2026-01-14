@@ -210,10 +210,10 @@
 
   def retry
     if @message.raw_message?
-      if @message.queued_message
-        @message.queued_message.allocate_ip_address(exclude_current: true)
-        @message.queued_message.update_column(:ip_address_id, @message.queued_message.ip_address&.id)
-        @message.queued_message.queue!
+      if (queued = @message.queued_message)
+        queued.allocate_ip_address(exclude_current: true)
+        queued.update_column(:ip_address_id, queued.ip_address&.id)
+        queued.queue!
         flash[:notice] = "This message will be retried shortly with a new IP address."
       elsif @message.held?
         @message.add_to_message_queue(:manual => true)

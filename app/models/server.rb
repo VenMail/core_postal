@@ -61,6 +61,11 @@ class Server < ApplicationRecord
   has_many :webhook_requests, :dependent => :destroy
   has_many :track_domains, :dependent => :destroy
   has_many :ip_pool_rules, :dependent => :destroy, :as => :owner
+  delegate :ip_pools, to: :organization, allow_nil: true
+
+  def ip_pools_with_defaults
+    (organization&.ip_pools || []) | default_ip_pools
+  end
 
   MODES = ['Live', 'Development']
 
@@ -289,10 +294,15 @@ class Server < ApplicationRecord
           end
         end
       end
-      self.ip_pool
+      self.ip_pool || default_ip_pools.first
     else
       nil
     end
+  end
+
+  def default_ip_pools
+    return [] unless Postal.ip_pools?
+    IPPool.where(:name => Postal.default_ip_pool_names)
   end
 
   def self.triggered_send_limit(type)
