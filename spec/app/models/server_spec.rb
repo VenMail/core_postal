@@ -23,12 +23,14 @@ describe Server do
     it "returns pools matching configured names" do
       pool1 = create(:ip_pool, name: "global-1")
       pool2 = create(:ip_pool, name: "global-2")
+      allow(Postal).to receive(:ip_pools?).and_return(true)
       allow(Postal).to receive(:default_ip_pool_names).and_return(["global-1", "global-2"])
       expect(server.default_ip_pools).to match_array([pool1, pool2])
     end
 
     it "falls back to default pool in ip_pool_for_message when server/org pools missing" do
       default_pool = create(:ip_pool, name: "fallback")
+      allow(Postal).to receive(:ip_pools?).and_return(true)
       allow(Postal).to receive(:default_ip_pool_names).and_return(["fallback"])
       message = double('message', scope: 'outgoing')
       expect(server.ip_pool_for_message(message)).to eq(default_pool)
@@ -37,6 +39,7 @@ describe Server do
     it "prioritizes server pool over default" do
       server_pool = create(:ip_pool)
       default_pool = create(:ip_pool, name: "fallback")
+      allow(Postal).to receive(:ip_pools?).and_return(true)
       allow(Postal).to receive(:default_ip_pool_names).and_return(["fallback"])
       server.update(ip_pool: server_pool)
       message = double('message', scope: 'outgoing')
@@ -45,6 +48,7 @@ describe Server do
 
     it "includes default pools in ip_pools_with_defaults" do
       default_pool = create(:ip_pool, name: "global")
+      allow(Postal).to receive(:ip_pools?).and_return(true)
       allow(Postal).to receive(:default_ip_pool_names).and_return(["global"])
       expect(server.ip_pools_with_defaults).to include(default_pool)
     end

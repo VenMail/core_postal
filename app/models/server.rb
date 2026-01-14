@@ -64,7 +64,7 @@ class Server < ApplicationRecord
   delegate :ip_pools, to: :organization, allow_nil: true
 
   def ip_pools_with_defaults
-    (organization&.ip_pools || []) | default_ip_pools
+    (organization&.ip_pools || []) + default_ip_pools
   end
 
   MODES = ['Live', 'Development']
@@ -302,6 +302,7 @@ class Server < ApplicationRecord
 
   def default_ip_pools
     return [] unless Postal.ip_pools?
+    return [] if Postal.default_ip_pool_names.empty?
     IPPool.where(:name => Postal.default_ip_pool_names)
   end
 
