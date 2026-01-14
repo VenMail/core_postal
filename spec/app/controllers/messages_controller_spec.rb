@@ -213,14 +213,15 @@ describe MessagesController, type: :controller do
         )
         
         # Mock IP allocation to return the same IP when no alternatives exist
-        original_ip = double('ip_address', id: 123)
+        original_ip = IPAddress.create!(ipv4: '10.0.0.5', hostname: 'same.example.com', priority: 50, ip_pool: server.ip_pool)
         queued_message.update(ip_address: original_ip)
         
+        allow_any_instance_of(Postal::MessageDB::Message).to receive(:queued_message).and_return(queued_message)
         allow(queued_message).to receive(:allocate_ip_address).with(exclude_current: true) do
           queued_message.ip_address = original_ip # Falls back to same IP
         end
         
-        expect(queued_message).to receive(:update_column).with(:ip_address_id, 123)
+        expect(queued_message).to receive(:update_column).with(:ip_address_id, original_ip.id)
         expect(queued_message).to receive(:queue!)
 
         post :retry, params: {
@@ -275,8 +276,10 @@ describe MessagesController, type: :controller do
           manual: false
         )
 
+        ip_pool = server.ip_pool || IPPool.create!(name: 'Test Pool')
+        allow(server).to receive(:ip_pool).and_return(ip_pool)
         allow_any_instance_of(Postal::MessageDB::Message).to receive(:queued_message).and_return(queued_message)
-        ip_address = IPAddress.create!(ipv4: '192.168.1.100', hostname: 'mail.example.com', priority: 100, ip_pool: server.ip_pool)
+        ip_address = IPAddress.create!(ipv4: '192.168.1.100', hostname: 'mail.example.com', priority: 100, ip_pool: ip_pool)
 
         expect(queued_message).to receive(:update_column).with(:ip_address_id, ip_address.id.to_s)
         expect(queued_message).to receive(:queue!)
@@ -303,7 +306,9 @@ describe MessagesController, type: :controller do
 
         message = create_plain_text_message(server, 'Test message', 'recipient@example.com')
         message.update(held: 1)
-        ip_address = IPAddress.create!(ipv4: '192.168.1.100', hostname: 'mail.example.com', priority: 100, ip_pool: server.ip_pool)
+        ip_pool = server.ip_pool || IPPool.create!(name: 'Test Pool 2')
+        allow(server).to receive(:ip_pool).and_return(ip_pool)
+        ip_address = IPAddress.create!(ipv4: '192.168.1.100', hostname: 'mail.example.com', priority: 100, ip_pool: ip_pool)
 
         new_queued_message = double('queued_message')
         allow_any_instance_of(Postal::MessageDB::Message).to receive(:queued_message).and_return(nil)
