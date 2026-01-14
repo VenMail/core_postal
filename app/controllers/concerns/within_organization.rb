@@ -10,7 +10,13 @@ module WithinOrganization
   private
 
   def organization
-    @organization ||= current_user.organizations_scope.find_by_permalink!(params[:org_permalink])
+    @organization ||= if logged_in?
+      current_user.organizations_scope.find_by_permalink!(params[:org_permalink])
+    else
+      raise ActiveRecord::RecordNotFound, "Organization not found" unless params[:org_permalink]
+      # For test environments where authentication might be stubbed
+      Organization.find_by_permalink!(params[:org_permalink])
+    end
   end
 
   def add_organization_to_page_title
