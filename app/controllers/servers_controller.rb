@@ -1,8 +1,9 @@
 class ServersController < ApplicationController
 
   include WithinOrganization
+  require 'csv'
 
-  before_action :admin_required, :only => [:advanced, :suspend, :unsuspend]
+  before_action :admin_required, :only => [:advanced, :suspend, :unsuspend, :clear_queue, :export_queue]
   before_action { params[:id] && @server = organization.servers.present.find_by_permalink!(params[:id]) }
 
   def index
@@ -68,6 +69,58 @@ class ServersController < ApplicationController
   def queue
     @messages = @server.queued_messages.order(:id => :desc).page(params[:page])
     @messages_with_message = @messages.include_message
+  end
+
+  def export_queue
+    headers = ["id", "server_id", "message_id", "created_at", "updated_at", "domain", "attempts", "locked_at", "retry_after", "route_id", "manual", "batch_key", "locked_by", "ip_address_id", "to", "from", "subject"]
+    csv_rows = []
+    @server.queued_messages.retriable.find_each do |queued_message|
+      message = queued_message.message
+      next unless message && message.scope == 'outgoing'
+      csv_rows << [
+        queued_message.id,
+        queued_message.server_id,
+        queued_message.message_id,
+        queued_message.created_at&.iso8601,
+        queued_message.updated_at&.iso8601,
+        queued_message.domain,
+        queued_message.attempts,
+        queued_message.locked_at&.iso8601,
+        queued_message.retry_after&.iso8601,
+        queued_message.route_id,
+        queued_message.manual,
+        queued_message.batch_key,
+        queued_message.locked_by,
+        queued_message.ip_address_id,
+        message.rcpt_to,
+        message.mail_from,
+        message.subject
+      ]
+    end
+
+    if csv_rows.empty?
+      redirect_to_with_json [:queue, organization, @server], :alert => "No outgoing queued messages available to export"
+    else
+      csv_string = CSV.generate do |csv|
+        csv << headers
+        csv_rows.each { |row| csv << row }
+      end
+      send_data csv_string,
+        :filename => "outgoing-queue-#{organization.permalink}-#{@server.permalink}-#{Time.now.utc.strftime('%Y%m%d%H%M%S')}.csv",
+        :type => 'text/csv'
+    end
+  end
+
+  def clear_queue
+    removed = 0
+    @server.queued_messages.find_each do |queued_message|
+      message = queued_message.message
+      next unless message && message.scope == 'outgoing'
+      queued_message.destroy
+      removed += 1
+    end
+    notice = removed.zero? ? "No outgoing queued messages were removed" : "Removed #{removed} outgoing queued message#{'s' unless removed == 1}"
+    redirect_to_with_json [:queue, organization, @server], :notice => notice
   end
 
   def suspend

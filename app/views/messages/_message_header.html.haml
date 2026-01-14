@@ -20,7 +20,7 @@
           - if (ip = @message.sender_ip.presence)
             %span= ip
             - if current_user.admin?
-              = form_tag ban_ip_organization_server_message_path(organization, @server, @message), :method => :post, :class => 'inlineForm' do
+              = form_tag ban_ip_organization_server_message_path(organization, @server, @message.id), :method => :post, :class => 'inlineForm' do
                 = hidden_field_tag :ip, ip
                 = submit_tag 'Ban IP', :class => 'button button--small button--danger', :data => {:confirm => "Ban IP #{ip}?"}
           - else

@@ -14,6 +14,10 @@
         we've delivered them or we've given up trying.
 - else
   .pageContent
+    - if current_user.admin?
+      .u-marginBottom
+        = button_to "Export outgoing queue (zip)", [:export_queue, organization, @server], :method => :post, :class => "button button--secondary"
+        = button_to "Clear outgoing queue", [:clear_queue, organization, @server], :method => :delete, :data => {:confirm => "Are you sure you want to delete all outgoing queued messages?"}, :class => "button button--danger u-marginLeft"
     %p.pageContent__intro.u-margin
       All messages that pass through your mail server first enter this queue. Any messages
       that cannot be delivered immediately remain in the queue until they can be successfully
