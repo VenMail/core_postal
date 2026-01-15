@@ -305,7 +305,8 @@ class ReputationMonitorJob < Postal::Job
     # FIXED: Use stable cache key with proper digest
     cache_key = "ai_analysis:#{Digest::MD5.hexdigest(content)}"
     ai_result = Rails.cache.fetch(cache_key, expires_in: 1.hour) do
-      call_venmail_ai_service(content, sample_message)
+      # ENHANCED: Pass actual sent count to API for better analysis
+      call_venmail_ai_service(content, sample_message, group_data[:count])
     end
     
     if ai_result
@@ -359,17 +360,16 @@ class ReputationMonitorJob < Postal::Job
     end
   end
   
-  def call_venmail_ai_service(content, message)
+  def call_venmail_ai_service(content, message, sent_count = 1)
     # Use persistent connection with proper timeout handling and retry logic
     uri = URI('https://m.venmail.io/api/v1/analyze-outgoing')
     
-    # Sanitize payload data for security
+    # FIXED: Match PHP API expected parameters
     payload = {
       content: content,
-      subject: extract_subject(message)[0, 100],  # Limit subject length
-      from: sanitize_email_address(message.mail_from),
-      to: sanitize_email_address(message.rcpt_to),
-      timestamp: Time.now.iso8601
+      sender: sanitize_email_address(message.mail_from),  # API expects 'sender' not 'from'
+      subject: extract_subject(message)[0, 255],  # API limit is 255 chars
+      sent_count: sent_count  # ENHANCED: Pass actual sent count for better analysis
     }
     
     attempt = 0
@@ -393,15 +393,35 @@ class ReputationMonitorJob < Postal::Job
         if response.code.to_i == 200
           result = JSON.parse(response.body)
           
-          # Validate AI response structure
+          # FIXED: Validate PHP API response structure
           if result.is_a?(Hash) && result['spam_probability']
-            return result
+            # Ensure spam_probability is in valid range
+            spam_prob = result['spam_probability'].to_f
+            spam_prob = [0.0, [1.0, spam_prob].min].max  # Clamp to 0.0-1.0
+            
+            return {
+              'spam_probability' => spam_prob,
+              'reason' => result['reason'] || 'AI analysis',
+              'provider' => result['provider'] || 'unknown'
+            }
           else
-            Rails.logger.warn "ReputationMonitorJob: Invalid AI response structure"
+            Rails.logger.warn "ReputationMonitorJob: Invalid API response structure: #{result.keys}"
             return nil
           end
+        elsif response.code.to_i == 400
+          # FIXED: Handle validation errors from PHP API
+          begin
+            error_data = JSON.parse(response.body)
+            Rails.logger.error "ReputationMonitorJob: API validation error: #{error_data['error']} - #{error_data['details']}"
+          rescue
+            Rails.logger.error "ReputationMonitorJob: API validation error: #{response.body}"
+          end
+          return nil
+        elsif response.code.to_i == 503
+          Rails.logger.error "ReputationMonitorJob: Spam detection service temporarily unavailable"
+          return nil
         else
-          Rails.logger.warn "ReputationMonitorJob: AI service returned #{response.code} on attempt #{attempt}"
+          Rails.logger.warn "ReputationMonitorJob: API returned #{response.code} on attempt #{attempt}: #{response.body}"
           
           # Don't retry on client errors (4xx)
           if response.code.to_i >= 400 && response.code.to_i < 500
@@ -410,12 +430,12 @@ class ReputationMonitorJob < Postal::Job
         end
         
       rescue Net::OpenTimeout, Net::ReadTimeout => e
-        Rails.logger.warn "ReputationMonitorJob: AI service timeout on attempt #{attempt}: #{e.message}"
+        Rails.logger.warn "ReputationMonitorJob: API timeout on attempt #{attempt}: #{e.message}"
       rescue JSON::ParserError => e
-        Rails.logger.error "ReputationMonitorJob: Invalid JSON from AI service on attempt #{attempt}: #{e.message}"
+        Rails.logger.error "ReputationMonitorJob: Invalid JSON from API on attempt #{attempt}: #{e.message}"
         return nil  # Don't retry JSON parsing errors
       rescue => e
-        Rails.logger.error "ReputationMonitorJob: AI service call failed on attempt #{attempt}: #{e.message}"
+        Rails.logger.error "ReputationMonitorJob: API call failed on attempt #{attempt}: #{e.message}"
       ensure
         http&.finish if http&.started?
       end
@@ -426,7 +446,7 @@ class ReputationMonitorJob < Postal::Job
       end
     end
     
-    Rails.logger.error "ReputationMonitorJob: AI service failed after #{AI_RETRY_ATTEMPTS} attempts"
+    Rails.logger.error "ReputationMonitorJob: API failed after #{AI_RETRY_ATTEMPTS} attempts"
     nil
   end
   
