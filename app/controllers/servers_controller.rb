@@ -3,7 +3,7 @@ class ServersController < ApplicationController
   include WithinOrganization
   require 'csv'
 
-  before_action :admin_required, :only => [:advanced, :suspend, :unsuspend, :clear_queue, :export_queue]
+  before_action :admin_required, :only => [:advanced, :suspend, :unsuspend, :clear_queue, :export_queue, :clear_held, :export_held]
   before_action { params[:id] && @server = organization.servers.present.find_by_permalink!(params[:id]) }
 
   def index
@@ -121,6 +121,63 @@ class ServersController < ApplicationController
     end
     notice = removed.zero? ? "No outgoing queued messages were removed" : "Removed #{removed} outgoing queued message#{'s' unless removed == 1}"
     redirect_to_with_json [:queue, organization, @server], :notice => notice
+  end
+
+  def export_held
+    headers = ["id", "server_id", "message_id", "timestamp", "scope", "status", "held", "hold_expiry", "to", "from", "subject"]
+    
+    # Check if there are any held messages first
+    held_messages = @server.message_db.messages(:where => {:held => 1}, :limit => 1)
+    
+    if held_messages.empty?
+      redirect_to_with_json [:held, organization, @server, :messages], :alert => "No held messages available to export"
+      return
+    end
+    
+    # Stream the CSV to handle large datasets efficiently
+    response.headers['Content-Type'] = 'text/csv'
+    response.headers['Content-Disposition'] = "attachment; filename=\"held-messages-#{organization.permalink}-#{@server.permalink}-#{Time.now.utc.strftime('%Y%m%d%H%M%S')}.csv\""
+    
+    self.response_body = Enumerator.new do |yielder|
+      # Write headers first
+      yielder << CSV.generate_line(headers)
+      
+      # Stream messages one by one to avoid memory issues
+      @server.message_db.messages(:where => {:held => 1}).each do |message|
+        row = [
+          message.id,
+          message.server_id,
+          message.message_id,
+          message.timestamp&.iso8601,
+          message.scope,
+          message.status,
+          message.held,
+          message.hold_expiry&.iso8601,
+          message.rcpt_to,
+          message.mail_from,
+          message.subject
+        ]
+        yielder << CSV.generate_line(row)
+      end
+    end
+  end
+
+  def clear_held
+    removed = 0
+    
+    # Process messages in batches to handle large datasets efficiently
+    @server.message_db.messages(:where => {:held => 1}).each do |message|
+      message.delete
+      removed += 1
+      
+      # Yield control periodically to prevent blocking for too long
+      if removed % 1000 == 0
+        sleep(0.01) # Small delay to allow other requests
+      end
+    end
+    
+    notice = removed.zero? ? "No held messages were removed" : "Removed #{removed} held message#{'s' unless removed == 1}"
+    redirect_to_with_json [:held, organization, @server, :messages], :notice => notice
   end
 
   def suspend

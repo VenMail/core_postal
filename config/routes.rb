@@ -53,6 +53,8 @@ Rails.application.routes.draw do
       get :queue, :on => :member
       post :export_queue, :on => :member
       delete :clear_queue, :on => :member
+      post :export_held, :on => :member
+      delete :clear_held, :on => :member
       get :spam, :on => :member
       get :delete, :on => :member
       get 'help/outgoing' => 'help#outgoing'
