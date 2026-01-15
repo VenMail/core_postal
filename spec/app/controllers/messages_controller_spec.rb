@@ -17,7 +17,7 @@ describe MessagesController, type: :controller do
 
         create_plain_text_message(server, 'This contains Social Security information', 'recipient@example.com')
 
-        mail_double = double(deliver: true)
+        mail_double = double(deliver_now: true)
         expect(AppMailer).to receive(:recall_notice).
           with('recipient@example.com', subject_line, body_text).
           and_return(mail_double)
@@ -51,7 +51,7 @@ describe MessagesController, type: :controller do
 
         create_plain_text_message(server, 'body without phrase', 'recipient2@example.com', :subject => 'Special Subject Social Security')
 
-        mail_double = double(deliver: true)
+        mail_double = double(deliver_now: true)
         expect(AppMailer).to receive(:recall_notice).
           with('recipient2@example.com', subject_line, body_text).
           and_return(mail_double)

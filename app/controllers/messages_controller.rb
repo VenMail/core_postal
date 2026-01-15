@@ -131,7 +131,8 @@
       page += 1
     end
 
-    # Queue the recall notices instead of sending synchronously
+    # Send recall notices
+    sent_count = 0
     if recipients.any?
       # Prevent mass spam operations
       if recipients.size > MAX_RECALL_RECIPIENTS
@@ -140,19 +141,20 @@
         return
       end
       
-      RecallNoticeJob.queue('default', {
-        recipients: recipients.to_a,
-        subject: recall_subject,
-        body: recall_body,
-        server_id: @server.id,
-        user_id: current_user.id
-      })
+      recipients.each do |recipient|
+        begin
+          AppMailer.recall_notice(recipient, recall_subject, recall_body).deliver_now
+          sent_count += 1
+        rescue => e
+          Rails.logger.error("Failed to send recall notice to #{recipient}: #{e.message}")
+        end
+      end
     end
 
     notice = if recipients.empty?
                "No recipients matched that phrase in the last #{hours} hours."
              else
-               "Recall notice queued for #{recipients.size} recipient#{'s' if recipients.size != 1} from the last #{hours} hours."
+               "Recall notice sent to #{sent_count} recipient#{'s' if sent_count != 1} from the last #{hours} hours."
              end
     redirect_to_with_json [:outgoing, organization, @server, :messages], :notice => notice
   end
