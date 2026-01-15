@@ -362,7 +362,7 @@ class ReputationMonitorJob < Postal::Job
   
   def call_venmail_ai_service(content, message, sent_count = 1)
     # Use persistent connection with proper timeout handling and retry logic
-    uri = URI('https://m.venmail.io/api/v1/analyze-outgoing')
+    uri = URI('https://m.venmail.io/api/v1/spam-check')
     
     # FIXED: Match PHP API expected parameters
     payload = {
