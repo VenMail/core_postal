@@ -140,13 +140,13 @@
         return
       end
       
-      RecallNoticeJob.perform_later(
-        recipients.to_a,
-        recall_subject,
-        recall_body,
-        @server.id,
-        current_user.id
-      )
+      RecallNoticeJob.queue('default', {
+        recipients: recipients.to_a,
+        subject: recall_subject,
+        body: recall_body,
+        server_id: @server.id,
+        user_id: current_user.id
+      })
     end
 
     notice = if recipients.empty?

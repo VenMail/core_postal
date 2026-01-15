@@ -1,5 +1,4 @@
-class RecallNoticeJob < ApplicationJob
-  retry_on StandardError, wait: :exponentially_longer, attempts: 3
+class RecallNoticeJob < Postal::Job
   
   # Conservative rate limiting to avoid spam filters
   RATE_LIMIT_DELAY = 2.seconds          # 30 emails per minute max
@@ -16,7 +15,12 @@ class RecallNoticeJob < ApplicationJob
   IP_ROTATION_FREQUENCY = 20           # Change IP every 20 emails
   PREFER_BACKUP_IPS = true             # Avoid primary IP for recalls
   
-  def perform(recipients, subject, body, server_id, user_id)
+  def perform
+    recipients = params['recipients']
+    subject = params['subject']
+    body = params['body']
+    server_id = params['server_id']
+    user_id = params['user_id']
     @server = Server.find(server_id)
     @user = User.find(user_id)
     @success_count = 0
