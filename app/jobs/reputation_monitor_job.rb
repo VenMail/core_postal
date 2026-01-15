@@ -8,27 +8,42 @@ class ReputationMonitorJob < Postal::Job
   BATCH_SIZE = 1000
   MAX_CONTENT_LENGTH = 5000
   SIMILARITY_SAMPLE_SIZE = 100
-  MAX_THREADS = 4  # Conservative thread pool size
+  MAX_THREADS = 2  # Reduced for better stability
+  MAX_MEMORY_GROUPS = 10000  # Memory limit for message groups
+  AI_RETRY_ATTEMPTS = 3
+  AI_RETRY_DELAY = 2.seconds
+  WEBHOOK_TIMEOUT = 10.seconds
+  THREAD_TIMEOUT = 30.seconds
   
   def perform
     Rails.logger.info "ReputationMonitorJob: Starting enhanced spam monitoring analysis"
     
-    # Process credentials in batches
-    Credential.where(hold: false).find_each(batch_size: 50) do |credential|
-      begin
-        monitor_credential(credential)
-      rescue => e
-        Rails.logger.error "ReputationMonitorJob: Error monitoring credential #{credential.id}: #{e.message}"
+    begin
+      # Process credentials in batches with proper error handling
+      Credential.where(hold: false).find_each(batch_size: 50) do |credential|
+        monitor_credential_with_error_handling(credential)
       end
+      
+      # Run original reputation monitoring
+      run_original_reputation_monitoring
+      
+      Rails.logger.info "ReputationMonitorJob: Completed enhanced spam monitoring analysis"
+    rescue => e
+      Rails.logger.error "ReputationMonitorJob: Critical job failure: #{e.message}"
+      Rails.logger.error e.backtrace.join("\n")
+      raise  # Re-raise critical failures
     end
-    
-    # Run original reputation monitoring
-    run_original_reputation_monitoring
-    
-    Rails.logger.info "ReputationMonitorJob: Completed enhanced spam monitoring analysis"
   end
   
   private
+  
+  def monitor_credential_with_error_handling(credential)
+    begin
+      monitor_credential(credential)
+    rescue => e
+      Rails.logger.error "ReputationMonitorJob: Error monitoring credential #{credential.id}: #{e.message}"
+    end
+  end
   
   def monitor_credential(credential)
     server = credential.server
@@ -45,17 +60,17 @@ class ReputationMonitorJob < Postal::Job
   end
   
   def get_message_count(server, since_time)
-    # Use proper ActiveRecord count query
+    # Use proper MessageDB count query
     result = server.message_db.select('messages', 
       where: {
         scope: 'outgoing',
         timestamp: { greater_than: since_time.to_f },
         spam: false
       },
-      select: 'COUNT(*) as count'
-    ).first
+      count: true  # FIXED: Use count parameter instead of select
+    )
     
-    result ? result['count'].to_i : 0
+    result || 0
   rescue => e
     Rails.logger.error "ReputationMonitorJob: Error counting messages: #{e.message}"
     0
@@ -64,7 +79,7 @@ class ReputationMonitorJob < Postal::Job
   def process_messages_in_batches(credential, server, since_time, total_count)
     return if total_count < SEND_COUNT_THRESHOLD
     
-    # Efficient data structures
+    # Efficient data structures with memory limits
     content_counter = Hash.new(0)
     message_samples = {}
     
@@ -86,11 +101,14 @@ class ReputationMonitorJob < Postal::Job
         
         # Store sample for groups that could reach threshold
         if content_counter[content_key] == 1
-          message_samples[content_key] = {
-            sample_message: message,
-            message_ids: [message.id],
-            count: 1
-          }
+          # Memory protection: limit stored groups
+          if message_samples.size < MAX_MEMORY_GROUPS
+            message_samples[content_key] = {
+              sample_message: message,
+              message_ids: [message.id],
+              count: 1
+            }
+          end
         elsif message_samples[content_key]
           message_samples[content_key][:count] += 1
           message_samples[content_key][:message_ids] << message.id
@@ -102,6 +120,8 @@ class ReputationMonitorJob < Postal::Job
       # Log progress periodically
       if processed_count % 5000 == 0
         Rails.logger.debug "ReputationMonitorJob: Processed #{processed_count}/#{total_count} messages"
+        # Force garbage collection periodically
+        GC.start if processed_count % 10000 == 0
       end
     end
     
@@ -112,6 +132,10 @@ class ReputationMonitorJob < Postal::Job
     
     # Analyze groups with thread pool
     analyze_spam_groups_threaded(credential, server, potential_spam_groups)
+    
+    # Cleanup memory
+    message_samples.clear
+    content_counter.clear
   end
   
   def get_message_batch_offset(server, since_time, offset, limit)
@@ -148,11 +172,17 @@ class ReputationMonitorJob < Postal::Job
     end
   end
   
+  # Pre-compiled regex patterns for better performance
+  SUBJECT_REGEX = /^Subject:\s*(.+)$/mi.freeze
+  HTML_TAG_REGEX = /<[^>]*>/.freeze
+  NORMALIZATION_REGEX = /\d+|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|https?:\/\/\S+/i.freeze
+  WHITESPACE_REGEX = /\s+/.freeze
+  
   def extract_subject(message)
     return "" unless message.raw_headers
     
-    # Simple regex match for subject
-    match = message.raw_headers.match(/^Subject:\s*(.+)$/mi)
+    # Use pre-compiled regex for better performance
+    match = message.raw_headers.match(SUBJECT_REGEX)
     match ? match[1].strip.downcase[0, 50] : ""
   rescue
     ""
@@ -161,9 +191,9 @@ class ReputationMonitorJob < Postal::Job
   def extract_body_sample(message)
     return "" unless message.raw_body
     
-    # Take first 200 chars, strip HTML
+    # Take first 200 chars, strip HTML with pre-compiled regex
     body = message.raw_body[0, 200]
-    body.gsub(/<[^>]*>/, ' ').strip.downcase[0, 100]
+    body.gsub(HTML_TAG_REGEX, ' ').strip.downcase[0, 100]
   rescue
     ""
   end
@@ -176,25 +206,40 @@ class ReputationMonitorJob < Postal::Job
     
     pool = Concurrent::FixedThreadPool.new(MAX_THREADS)
     results = Concurrent::Array.new
+    mutex = Mutex.new  # Thread safety for shared resources
     
     spam_groups.each do |content_key, group_data|
       pool.post do
         begin
-          bounce_rate = calculate_group_bounce_rate(server, group_data[:message_ids])
+          # FIXED: Pass server_id instead of server object to avoid thread safety issues
+          server_id = server.id
+          message_ids = group_data[:message_ids]
           
-          results << {
-            group_data: group_data,
-            bounce_rate: bounce_rate
-          }
+          ActiveRecord::Base.connection_pool.with_connection do
+            # Re-fetch server in this thread's context
+            thread_server = Server.find(server_id)
+            bounce_rate = calculate_group_bounce_rate_optimized(thread_server.message_db, message_ids)
+            
+            # Thread-safe result collection
+            mutex.synchronize do
+              results << {
+                group_data: group_data,
+                bounce_rate: bounce_rate
+              }
+            end
+          end
         rescue => e
           Rails.logger.error "ReputationMonitorJob: Error in threaded analysis: #{e.message}"
         end
       end
     end
     
-    # Wait for all tasks to complete
+    # Wait for all tasks to complete with timeout
     pool.shutdown
-    pool.wait_for_termination
+    unless pool.wait_for_termination(THREAD_TIMEOUT)
+      Rails.logger.warn "ReputationMonitorJob: Thread pool timeout, forcing shutdown"
+      pool.kill
+    end
     
     # Process results sequentially to avoid race conditions
     results.each do |result|
@@ -207,24 +252,42 @@ class ReputationMonitorJob < Postal::Job
     end
   end
   
+  def calculate_group_bounce_rate_optimized(server, message_ids)
+    return 0.0 if message_ids.empty?
+    
+    # FIXED: Use count parameter instead of select
+    bounced_count = server.message_db.select('deliveries',
+      where: {
+        message_id: message_ids,
+        status: 'Bounced'
+      },
+      count: true
+    )
+    
+    bounced_total = bounced_count || 0
+    (bounced_total.to_f / message_ids.size) * 100.0
+  rescue => e
+    Rails.logger.error "ReputationMonitorJob: Optimized bounce check failed: #{e.message}"
+    0.0
+  end
+  
   def calculate_group_bounce_rate(server, message_ids)
     return 0.0 if message_ids.empty?
     
     total_bounced = 0
     
-    # Process in batches with proper ActiveRecord IN query
+    # Process in batches with proper MessageDB count queries
     message_ids.each_slice(500) do |id_batch|
       begin
-        # FIXED: Use proper hash where clause for IN query
-        bounced_deliveries = server.message_db.select('deliveries',
+        # FIXED: Use count parameter instead of select
+        bounced_deliveries = server.message_db.count('deliveries',
           where: {
-            message_id: id_batch,  # ActiveRecord handles IN automatically for arrays
+            message_id: id_batch,
             status: 'Bounced'
-          },
-          select: 'COUNT(DISTINCT message_id) as count'
-        ).first
+          }
+        )
         
-        total_bounced += bounced_deliveries['count'].to_i if bounced_deliveries
+        total_bounced += bounced_deliveries if bounced_deliveries
       rescue => e
         Rails.logger.error "ReputationMonitorJob: Bounce check failed: #{e.message}"
       end
@@ -269,20 +332,25 @@ class ReputationMonitorJob < Postal::Job
       # Get body with size limit
       if message.raw_body
         body_content = message.raw_body[0, 3000]
-        stripped_body = body_content.gsub(/<[^>]*>/, ' ')[0, 2000]
+        stripped_body = body_content.gsub(HTML_TAG_REGEX, ' ')[0, 2000]
         content_parts << stripped_body.strip if stripped_body.present?
       end
       
-      # Normalize in single pass with combined regex
+      # Normalize with pre-compiled regex patterns and sanitize PII
       content = content_parts.join(' ').downcase
-      content.gsub!(/\d+|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|https?:\/\/\S+/i) do |match|
+      content.gsub!(NORMALIZATION_REGEX) do |match|
         case match
         when /^\d+$/ then 'N'
         when /@/ then 'E'
         else 'U'
         end
       end
-      content.gsub!(/\s+/, ' ')
+      content.gsub!(WHITESPACE_REGEX, ' ')
+      
+      # Additional security: Remove potential sensitive patterns
+      content.gsub!(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/, 'CARD')  # Credit card patterns
+      content.gsub!(/\b\d{3}-?\d{2}-?\d{4}\b/, 'SSN')  # SSN patterns
+      
       content.strip[0, 4000]
       
     rescue => e
@@ -292,43 +360,87 @@ class ReputationMonitorJob < Postal::Job
   end
   
   def call_venmail_ai_service(content, message)
-    # Use persistent connection with proper timeout handling
+    # Use persistent connection with proper timeout handling and retry logic
     uri = URI('https://m.venmail.io/api/v1/analyze-outgoing')
     
+    # Sanitize payload data for security
     payload = {
       content: content,
-      subject: extract_subject(message),
-      from: message.mail_from,
-      to: message.rcpt_to,
+      subject: extract_subject(message)[0, 100],  # Limit subject length
+      from: sanitize_email_address(message.mail_from),
+      to: sanitize_email_address(message.rcpt_to),
       timestamp: Time.now.iso8601
     }
     
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.use_ssl = true
-    http.read_timeout = 8
-    http.open_timeout = 4
+    attempt = 0
     
-    request = Net::HTTP::Post.new(uri)
-    request['Content-Type'] = 'application/json'
-    request['User-Agent'] = 'Postal-ReputationMonitor/3.0'
-    request.body = payload.to_json
-    
-    response = http.request(request)
-    
-    if response.code.to_i == 200
-      JSON.parse(response.body)
-    else
-      Rails.logger.warn "ReputationMonitorJob: AI service returned #{response.code}"
-      nil
+    AI_RETRY_ATTEMPTS.times do
+      attempt += 1
+      
+      begin
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = true
+        http.read_timeout = 8
+        http.open_timeout = 4
+        
+        request = Net::HTTP::Post.new(uri)
+        request['Content-Type'] = 'application/json'
+        request['User-Agent'] = 'Postal-ReputationMonitor/3.0'
+        request.body = payload.to_json
+        
+        response = http.request(request)
+        
+        if response.code.to_i == 200
+          result = JSON.parse(response.body)
+          
+          # Validate AI response structure
+          if result.is_a?(Hash) && result['spam_probability']
+            return result
+          else
+            Rails.logger.warn "ReputationMonitorJob: Invalid AI response structure"
+            return nil
+          end
+        else
+          Rails.logger.warn "ReputationMonitorJob: AI service returned #{response.code} on attempt #{attempt}"
+          
+          # Don't retry on client errors (4xx)
+          if response.code.to_i >= 400 && response.code.to_i < 500
+            return nil
+          end
+        end
+        
+      rescue Net::OpenTimeout, Net::ReadTimeout => e
+        Rails.logger.warn "ReputationMonitorJob: AI service timeout on attempt #{attempt}: #{e.message}"
+      rescue JSON::ParserError => e
+        Rails.logger.error "ReputationMonitorJob: Invalid JSON from AI service on attempt #{attempt}: #{e.message}"
+        return nil  # Don't retry JSON parsing errors
+      rescue => e
+        Rails.logger.error "ReputationMonitorJob: AI service call failed on attempt #{attempt}: #{e.message}"
+      ensure
+        http&.finish if http&.started?
+      end
+      
+      # Wait before retry (exponential backoff)
+      if attempt < AI_RETRY_ATTEMPTS
+        sleep(AI_RETRY_DELAY * (2 ** (attempt - 1)))
+      end
     end
-  rescue Net::OpenTimeout, Net::ReadTimeout => e
-    Rails.logger.warn "ReputationMonitorJob: AI service timeout: #{e.message}"
+    
+    Rails.logger.error "ReputationMonitorJob: AI service failed after #{AI_RETRY_ATTEMPTS} attempts"
     nil
-  rescue => e
-    Rails.logger.error "ReputationMonitorJob: AI service call failed: #{e.message}"
-    nil
-  ensure
-    http.finish if http&.started?
+  end
+  
+  def sanitize_email_address(email)
+    return "" unless email.is_a?(String)
+    # Extract domain only for privacy
+    parts = email.split('@')
+    if parts.size == 2
+      "user@#{parts[1].downcase}"
+    else
+      "unknown"
+    end
+  rescue
+    "unknown"
   end
   
   def suspend_credential(credential, server, group_data, bounce_rate, ai_result)
@@ -369,15 +481,17 @@ class ReputationMonitorJob < Postal::Job
   end
   
   def consider_server_suspension(server, credential, group_data, bounce_rate, ai_result)
-    # FIXED: Get fresh counts each time, no caching across credential updates
-    total_credentials = server.credentials.count
-    problematic_credentials = server.credentials.where(hold: true).count
-    
-    if problematic_credentials >= 2 || (total_credentials > 0 && problematic_credentials.to_f / total_credentials >= 0.5)
-      reason = "Multiple spam violations. Latest: #{group_data[:count]} emails, #{bounce_rate.round(2)}% bounce, AI: #{ai_result['spam_probability']}"
-      server.suspend(reason)
+    # FIXED: Use transaction to prevent race condition
+    ActiveRecord::Base.transaction do
+      total_credentials = server.credentials.count
+      problematic_credentials = server.credentials.where(hold: true).count
       
-      Rails.logger.error "ReputationMonitorJob: Suspended server #{server.permalink} - #{reason}"
+      if problematic_credentials >= 2 || (total_credentials > 0 && problematic_credentials.to_f / total_credentials >= 0.5)
+        reason = "Multiple spam violations. Latest: #{group_data[:count]} emails, #{bounce_rate.round(2)}% bounce, AI: #{ai_result['spam_probability']}"
+        server.suspend(reason)
+        
+        Rails.logger.error "ReputationMonitorJob: Suspended server #{server.permalink} - #{reason}"
+      end
     end
   end
   
