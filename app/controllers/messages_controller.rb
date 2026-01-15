@@ -5,6 +5,7 @@
 
   MAX_RECALL_HOURS = 72
   RECALL_RECALL_PAGE_SIZE = 500
+  MAX_RECALL_RECIPIENTS = 1000  # Prevent mass spam operations
 
   before_action { @server = organization.servers.present.find_by_permalink!(params[:server_id]) }
   before_action { params[:id] && @message = @server.message_db.message(params[:id].to_i) }
@@ -130,36 +131,29 @@
       page += 1
     end
 
-    sent = 0
-    failures = []
-    from_address = @server.postmaster_address.presence
-    if from_address.blank?
-      if (domain = @server.domains.verified.order(:name).first)
-        from_address = "postmaster@#{domain.name}"
-      else
-        from_address = current_user.email_address
+    # Queue the recall notices instead of sending synchronously
+    if recipients.any?
+      # Prevent mass spam operations
+      if recipients.size > MAX_RECALL_RECIPIENTS
+        redirect_to_with_json [:outgoing, organization, @server, :messages], 
+          :alert => "Too many recipients found (#{recipients.size}). For spam protection, recalls are limited to #{MAX_RECALL_RECIPIENTS} recipients. Please narrow your search criteria."
+        return
       end
-    end
-
-    recipients.each do |recipient|
-      begin
-        mail = AppMailer.recall_notice(recipient, recall_subject, recall_body)
-        mail.deliver
-        sent += 1
-      rescue => e
-        Rails.logger.error("Recall enqueue failed for #{recipient}: #{e.class} #{e.message}")
-        failures << recipient
-      end
+      
+      RecallNoticeJob.perform_later(
+        recipients.to_a,
+        recall_subject,
+        recall_body,
+        @server.id,
+        current_user.id
+      )
     end
 
     notice = if recipients.empty?
                "No recipients matched that phrase in the last #{hours} hours."
              else
-               "Recall notice sent to #{sent} recipient#{'s' if sent != 1} from the last #{hours} hours."
+               "Recall notice queued for #{recipients.size} recipient#{'s' if recipients.size != 1} from the last #{hours} hours."
              end
-    unless failures.empty?
-      notice += " Failed for: #{failures.join(', ')} (see logs)."
-    end
     redirect_to_with_json [:outgoing, organization, @server, :messages], :notice => notice
   end
 
