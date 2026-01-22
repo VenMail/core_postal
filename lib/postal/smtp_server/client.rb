@@ -716,10 +716,29 @@ module Postal
         authenticated_domain = nil
         if @credential
           authenticated_domain = @credential.server.find_authenticated_domain_from_headers(@headers)
-          if authenticated_domain.nil?
+          if authenticated_domain.nil? && !@credential.server.block_outgoing_without_verified_route?
             transaction_reset
             @state = :welcomed
             return '530 From/Sender name is not valid'
+          end
+          
+          # If no authenticated domain but block_outgoing_without_verified_route is enabled,
+          # extract domain from From header for later validation in UnqueueMessageJob
+          if authenticated_domain.nil? && @credential.server.block_outgoing_without_verified_route?
+            from_header = @headers['from']&.first
+            if from_header
+              begin
+                from_email = from_header.match(/<([^>]+@[^>]+)>/)&.[](1) || from_header.scan(/\S+@\S+/).first
+                from_domain_name = from_email&.split('@')&.last&.downcase
+                if from_domain_name
+                  # Look up the domain in the database to set proper domain_id
+                  authenticated_domain = Domain.where(name: from_domain_name).first
+                  log "Found domain #{from_domain_name} for route validation: #{authenticated_domain ? 'yes' : 'no'}"
+                end
+              rescue StandardError => e
+                log "Error extracting domain from From header for route validation: #{e.message}"
+              end
+            end
           end
         end
 

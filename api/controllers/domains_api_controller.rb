@@ -31,6 +31,7 @@ controller :domains do
     description "Add a new domain based on the given name parameter"
     
     param :name, "Name of the domain", :type => String
+    param :include_private_key, "Include the DKIM private key (for internal provisioning only)", :type => :boolean, :required => false
     error 'RecordInvalid', "The provided data was not sufficient to create a domain", attributes: { errors: "A hash of error details" }
     returns Hash
     
@@ -46,6 +47,7 @@ controller :domains do
           spf_record = @domain.spf_record
           verification_token = @domain.verification_token
           verification_method = @domain.verification_method
+          dkim_private_key = @domain.dkim_private_key
 
           {
             id: @domain.id,
@@ -54,7 +56,8 @@ controller :domains do
             dkim_identifier: dkim_identifier,
             spf_record: spf_record,
             verification_token: verification_token,
-            verification_method: verification_method
+            verification_method: verification_method,
+            dkim_private_key: (params.include_private_key == true ? dkim_private_key : nil)
           }
         else
           error "RecordInvalid", :errors => @domain.errors.full_messages
