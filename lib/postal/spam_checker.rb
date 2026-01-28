@@ -634,7 +634,8 @@ module Postal
         mismatched = check_for_mismatched_sender(sender_email, links)
 
         parsed = strip_html(parsed)
-        body_lower = parsed.downcase
+        body_str = parsed.to_s.dup.force_encoding('UTF-8').scrub
+        body_lower = body_str.downcase
 
         gibberish_pattern = /(?<![aeiouy])[aeiouy]{3,}(?![aeiouy])|(?<![bcdfghjklmnpqrstvwxyz])[bcdfghjklmnpqrstvwxyz]{3,}(?![bcdfghjklmnpqrstvwxyz])/
         contains_gibberish = body_lower.match?(gibberish_pattern)
