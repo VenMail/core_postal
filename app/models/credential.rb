@@ -13,6 +13,8 @@
 #  updated_at   :datetime
 #  hold         :boolean          default(FALSE)
 #  uuid         :string(255)
+#  hold_at      :datetime
+#  hold_reason  :string(255)
 #
 
 class Credential < ApplicationRecord

@@ -34,5 +34,33 @@ class CredentialsController < ApplicationController
     @credential.destroy
     redirect_to_with_json [organization, @server, :credentials]
   end
+  
+  # ENHANCED: Manual reset endpoint for administrators
+  def reset_reputation
+    if @credential.update(hold: false, hold_at: nil, hold_reason: nil)
+      # Trigger webhook for manual credential unlock
+      WebhookRequest.trigger(
+        @server,
+        'CredentialUnlocked',
+        {
+          server: @server.webhook_hash,
+          credential: {
+            id: @credential.id,
+            uuid: @credential.uuid,
+            name: @credential.name,
+            type: @credential.type
+          },
+          reason: "Manual reset by administrator",
+          bounce_rate: @server.bounce_rate
+        }
+      )
+      
+      Rails.logger.info "CredentialsController: Manual reset by admin - credential #{@credential.uuid}"
+      redirect_to_with_json [organization, @server, :credentials], 
+        notice: "Credential reputation has been reset successfully"
+    else
+      render_form_errors 'edit', @credential
+    end
+  end
 
 end

@@ -303,8 +303,12 @@
       return
     end
 
-    @server.message_db.suppression_list.add(:ip, ip, :reason => "Manual IP ban from message view")
-    redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP #{ip} added to suppression list."
+    # Add to global suppression list
+    if GlobalSuppression.ban_ip(ip, reason: "Manual IP ban from message view by #{current_user.email}")
+      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP #{ip} added to global suppression list."
+    else
+      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "Failed to ban IP #{ip}."
+    end
   end
 
   def remove_from_queue
