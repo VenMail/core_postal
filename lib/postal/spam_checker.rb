@@ -542,6 +542,28 @@ module Postal
       'transport'
     ].freeze
 
+    # Greeting patterns that may include email addresses
+    GREETING_PATTERNS = [
+      'hello',
+      'hi',
+      'dear',
+      'greetings',
+      'good morning',
+      'good afternoon',
+      'good evening'
+    ].freeze
+
+    TARGETED_URGENCY_PHRASES = [
+      'update immediately',
+      'address update required',
+      'address confirmation required',
+      'respond within 24 hours',
+      'final reminder',
+      'final notice',
+      'shipment on hold',
+      'delivery awaiting confirmation'
+    ].freeze
+
     class << self
       attr_accessor :header_tracker
       
@@ -849,6 +871,42 @@ module Postal
         log "#{phishing_score} phishing tracking link points found" if phishing_score > 0
         phishing_score
       end
+      
+      def email_greeting_urgency_score(body_text, subject, headers, sender_domain, confirmation_score, phishing_score, restricted_score)
+        return 0 unless body_text && subject
+        text = body_text.to_s
+        normalized_body = text.downcase
+        normalized_subject = subject.to_s.downcase
+        greeting_pattern = GREETING_PATTERNS.map { |g| Regexp.escape(g) }.join('|')
+        greeting_email_regex = /\b(?:#{greeting_pattern})\s+[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?:\b|[,!.\s])/i
+
+        greeting_match = text.match?(greeting_email_regex)
+        return 0 unless greeting_match
+
+        headers_text = headers.join(' ').downcase
+        priority_hit = PRIORITY_INDICATORS.any? do |indicator|
+          headers_text.include?(indicator) || normalized_subject.include?(indicator)
+        end
+
+        urgency_phrase_hit = TARGETED_URGENCY_PHRASES.any? do |phrase|
+          normalized_body.include?(phrase) || normalized_subject.include?(phrase)
+        end
+
+        return 0 unless priority_hit || urgency_phrase_hit
+        return 0 unless confirmation_score.to_f > 0
+
+        sender_domain = sender_domain.to_s.downcase
+        trusted_sender = TRUSTED_DOMAINS.any? { |domain| sender_domain.end_with?(domain) }
+        return 0 if trusted_sender
+
+        score = 2
+        score += 1 if restricted_score.to_f > 0
+        score += 1 if phishing_score.to_f > 0
+
+        score = [score, 5].min
+        log "Email greeting + urgency heuristic triggered with score #{score}"
+        score
+      end
                    
       def classify_email(sender_email, parsed, headers = [], subject = '')
         links = extract_links(parsed)
@@ -877,6 +935,15 @@ module Postal
         restricted_domain_score = check_restricted_domain_priority(headers, from_domain)
         confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower)
         phishing_tracking_score = check_phishing_tracking_links(links)
+        greeting_urgency_score = email_greeting_urgency_score(
+          body_str,
+          subject,
+          headers,
+          from_domain,
+          confirmation_phrases_score,
+          phishing_tracking_score,
+          restricted_domain_score
+        )
 
         gibberish_pattern = /(?<![aeiouy])[aeiouy]{3,}(?![aeiouy])|(?<![bcdfghjklmnpqrstvwxyz])[bcdfghjklmnpqrstvwxyz]{3,}(?![bcdfghjklmnpqrstvwxyz])/
         contains_gibberish = body_lower.match?(gibberish_pattern)
@@ -900,6 +967,7 @@ module Postal
         log "#{restricted_domain_score} restricted domain score"
         log "#{confirmation_phrases_score} confirmation phrases score"
         log "#{phishing_tracking_score} phishing tracking links score"
+        log "#{greeting_urgency_score} email greeting urgency score"
 
         score = 0
         
@@ -927,6 +995,7 @@ module Postal
         score += restricted_domain_score
         score += 2 * confirmation_phrases_score
         score += phishing_tracking_score
+        score += greeting_urgency_score
 
         #use wordiness to determine newsletter
         if body_lower.length > 1024 && body_lower.include?('unsubscribe')

@@ -23,8 +23,9 @@ general:
   default_spam_failure_threshold: 20.0
   address_spam_failure_threshold: 10.0
   default_domain_daily_send_limit: 1000
-  reputation_block_threshold_percent: 3.0
-  reputation_min_sample_size: 500
+  reputation_block_threshold_percent: 8.0
+  reputation_credential_bounce_threshold_percent: 8.0
+  reputation_min_sample_size: 50
   compromise:
     hour_window: 3600
     suspicious_threshold: 5

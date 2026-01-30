@@ -14,6 +14,7 @@ module Clockwork
     CheckAllDNSJob.queue(:main)
     ExpireHeldMessagesJob.queue(:main)
     CleanupAuthieSessionsJob.queue(:main)
+    ReputationMonitorJob.queue(:main)
   end
 
   every 1.hour, 'every-hour', :at => ['**:45'] do

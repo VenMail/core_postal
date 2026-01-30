@@ -7,12 +7,12 @@ echo "Building Docker image..."
 docker build -t ghcr.io/venmail/postal:latest .
 
 echo "Tagging image with version..."
-docker tag ghcr.io/venmail/postal:latest ghcr.io/venmail/postal:2.8.16
+docker tag ghcr.io/venmail/postal:latest ghcr.io/venmail/postal:2.8.18
 
 echo "Pushing latest tag..."
 docker push ghcr.io/venmail/postal:latest
 
 echo "Pushing version tag..."
-docker push ghcr.io/venmail/postal:2.8.16
+docker push ghcr.io/venmail/postal:2.8.18
 
 echo "Build and push completed successfully!"
