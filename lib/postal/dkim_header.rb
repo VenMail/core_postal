@@ -40,7 +40,7 @@ module Postal
           headers_to_sign = headers.reject { |h| h.match(/^resent-sender:/i) }
         end
         
-        headers_to_sign.select { |h| h.match(/^(from|sender|reply-to|subject|date|message-id|to|cc|mime-version|content-type|content-transfer-encoding|resent-to|resent-cc|resent-from|resent-sender|resent-message-id|in-reply-to|references|list-id|list-help|list-owner|list-unsubscribe|list-unsubscribe-post|list-subscribe|list-post|x-postal-loop):/i) }.each do |h|
+        headers_to_sign.select { |h| h.match(/^(from|sender|reply-to|subject|date:message-id|to|cc|mime-version|content-type|content-transfer-encoding|resent-to|resent-cc|resent-from|resent-message-id|in-reply-to|references|list-id|list-help|list-owner|list-unsubscribe|list-unsubscribe-post|list-subscribe|list-post|x-postal-loop):/i) }.each do |h|
           new_headers << normalize_header(h)
         end
       end
@@ -89,7 +89,7 @@ module Postal
 
         # * Ignore all whitespace at the end of lines.  Implementations MUST NOT
         #   remove the CRLF at the end of the line.
-        content.gsub!(/ \r\n/, "\r\n")
+        content.gsub!(/[ \t]+\r\n/, "\r\n")
 
         # b. Ignore all empty lines at the end of the message body.
         content.gsub!(/[ \r\n]*\z/, '')
