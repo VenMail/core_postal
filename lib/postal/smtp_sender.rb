@@ -188,11 +188,9 @@ module Postal
           else
             @smtp_client.rset_errors
             log "Sending the message #{message.server.id}::#{message.id} using direct SMTP commands"
-            @smtp_client.mailfrom(mail_from)
-            recipients.each do |recipient|
-              @smtp_client.rcptto(recipient)
-            end
-            smtp_result = @smtp_client.data(raw_message)
+            rcpt_to = force_rcpt_to || @options[:force_rcpt_to] || message.rcpt_to
+            log "Sending as before #{message.server.id}::#{message.id} to #{rcpt_to}"
+            smtp_result = @smtp_client.send_message(raw_message, mail_from, [rcpt_to])
           end
         rescue Errno::ECONNRESET, Errno::EPIPE, OpenSSL::SSL::SSLError
           if (tries += 1) < 2
