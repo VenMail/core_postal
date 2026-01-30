@@ -322,8 +322,10 @@ module Postal
     end
 
     def extract_headers_and_body(raw_message)
-      parts = raw_message.split(/\r?\n\r?\n/, 2)
-      headers = parts[0].split(/\r?\n/)
+      # Normalize line endings first to match what DKIM signing used
+      normalized_message = raw_message.gsub(/\r?\n/, "\r\n")
+      parts = normalized_message.split(/\r\n\r\n/, 2)
+      headers = parts[0].split(/\r\n/)
       body = parts.size > 1 ? parts[1] : ""
       [headers, body]
     end
