@@ -455,7 +455,84 @@ module Postal
 
     EMAIL_REGEX = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.freeze
 
+    # Restricted domains that should not send priority/urgent emails
+    RESTRICTED_DOMAINS = [
+      'venmail.io',
+      'venia.cloud', 
+      'bammby.com'
+    ].freeze
+
+    # Suspicious confirmation phrases
+    SUSPICIOUS_CONFIRMATION_PHRASES = [
+      'shipment confirmation',
+      'shipping confirmed',
+      'money received',
+      'wallet updated',
+      'health check',
+      'investment opportunity',
+      'payment received',
+      'account verification',
+      'address update required',
+      'delivery confirmation',
+      'package dispatched',
+      'order confirmed',
+      'payment processed',
+      'transaction completed'
+    ].freeze
+
+    # Priority indicators that should be blocked from restricted domains
+    PRIORITY_INDICATORS = [
+      'x-priority: 1',
+      'priority: urgent',
+      'importance: high',
+      'urgent',
+      'high priority',
+      'immediate action required',
+      'act now'
+    ].freeze
+
+    # Company name patterns for domain matching
+    COMPANY_KEYWORDS = [
+      'global',
+      'shipping',
+      'company',
+      'inc',
+      'corp',
+      'corporation',
+      'llc',
+      'limited',
+      'services',
+      'express',
+      'delivery',
+      'courier',
+      'logistics',
+      'freight',
+      'transport'
+    ].freeze
+
     class << self
+      attr_accessor :header_tracker
+      
+      def initialize_tracker
+        @header_tracker ||= {}
+      end
+      
+      def track_header_fingerprint(headers_hash)
+        initialize_tracker
+        current_time = Time.now
+        fingerprint = headers_hash
+        
+        # Clean old entries (older than 5 seconds)
+        @header_tracker.delete_if { |time, _| current_time - time > 5 }
+        
+        # Count recent occurrences of this specific fingerprint
+        matching_count = @header_tracker.count { |time, fp| fp == fingerprint && (current_time - time) <= 5 }
+        
+        # Add current occurrence
+        @header_tracker[current_time] = fingerprint
+        
+        matching_count
+      end
       def extract_links(content)
         links = {}
         document = Nokogiri::HTML(content)
@@ -475,6 +552,7 @@ module Postal
       end
 
       def log(text)
+        @log_id ||= "SPAM_#{Time.now.to_i}"
         Postal.logger_for(:http_sender).info("[#{@log_id}] #{text}")
       end
 
@@ -627,8 +705,74 @@ module Postal
         
         mismatched_count
       end
+      
+      def check_from_name_email_mismatch(from_header)
+        return 0 unless from_header
+        
+        # Extract name and email from "Name <email@domain.com>" format
+        match = from_header.match(/^(?:"?([^"]+)"?\s*)?<([^>]+)>$/)
+        return 0 unless match
+        
+        name = match[1]&.strip&.downcase
+        email = match[2]&.downcase
+        
+        return 0 unless name && email && email.include?('@')
+        
+        domain = email.split('@').last
+        
+        # Check if name contains company keywords but domain doesn't match
+        company_name_present = COMPANY_KEYWORDS.any? { |keyword| name.include?(keyword) }
+        domain_matches_company = name.split.any? { |word| domain.include?(word) }
+        
+        # High penalty if company name in From but domain doesn't reflect it
+        if company_name_present && !domain_matches_company
+          log "From name contains company keywords but domain doesn't match: #{from_header}"
+          return 5
+        end
+        
+        # Check for suspicious generated emails
+        if email.match?(/^[a-f0-9]{8,}@/i) || email.match?(/\d{3,}@/)
+          log "Suspicious generated email detected: #{email}"
+          return 3
+        end
+        
+        0
+      end
+      
+      def check_restricted_domain_priority(headers, from_domain)
+        return 0 unless from_domain && RESTRICTED_DOMAINS.include?(from_domain)
+        
+        headers_text = headers.join(' ').downcase
+        
+        # Check for priority indicators
+        priority_found = PRIORITY_INDICATORS.any? { |indicator| headers_text.include?(indicator) }
+        
+        if priority_found
+          log "Priority email from restricted domain detected: #{from_domain}"
+          return 10 # Very high penalty
+        end
+        
+        0
+      end
+      
+      def check_suspicious_confirmation_phrases(subject, body)
+        text = (subject.to_s + ' ' + body.to_s).downcase
+        
+        count = SUSPICIOUS_CONFIRMATION_PHRASES.sum do |phrase|
+          text.scan(/#{Regexp.escape(phrase)}/i).size
+        end
+        
+        log "#{count} suspicious confirmation phrases found" if count > 0
+        count
+      end
+      
+      def extract_domain_from_email(email)
+        return nil unless email
+        # Extract domain from email address, handling various formats
+        email.match(/@([^>\s]+)/)&.captures&.first
+      end
                   
-      def classify_email(sender_email, parsed)
+      def classify_email(sender_email, parsed, headers = [], subject = '')
         links = extract_links(parsed)
         bad_links = check_for_spam_links(links)
         mismatched = check_for_mismatched_sender(sender_email, links)
@@ -636,6 +780,24 @@ module Postal
         parsed = strip_html(parsed)
         body_str = parsed.to_s.dup.force_encoding('UTF-8').scrub
         body_lower = body_str.downcase
+        
+        # Extract From header for name/email mismatch detection
+        from_header = headers.find { |h| h.match?(/^From:/i) }
+        from_domain = extract_domain_from_email(sender_email)
+        
+        # Track header fingerprint for rate limiting
+        headers_fingerprint = headers.sort.join('|')
+        header_frequency = track_header_fingerprint(headers_fingerprint)
+        
+        # Apply rate limiting penalty
+        if header_frequency > 5
+          log "High frequency headers detected: #{header_frequency} occurrences in 5 seconds"
+        end
+        
+        # New detection methods
+        from_mismatch_score = check_from_name_email_mismatch(from_header)
+        restricted_domain_score = check_restricted_domain_priority(headers, from_domain)
+        confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower)
 
         gibberish_pattern = /(?<![aeiouy])[aeiouy]{3,}(?![aeiouy])|(?<![bcdfghjklmnpqrstvwxyz])[bcdfghjklmnpqrstvwxyz]{3,}(?![bcdfghjklmnpqrstvwxyz])/
         contains_gibberish = body_lower.match?(gibberish_pattern)
@@ -655,10 +817,20 @@ module Postal
         log "#{marketing_count} marketing count"
         log "#{offensive_count} offsensive count"
         log "#{finance_count1} finance1 count"
+        log "#{from_mismatch_score} from name/email mismatch score"
+        log "#{restricted_domain_score} restricted domain score"
+        log "#{confirmation_phrases_score} confirmation phrases score"
 
-        mismatchScore = (bad_links > 0 ? 0.5 : 0) * mismatched
         score = 0
+        
+        # Apply rate limiting penalty first
+        if header_frequency > 5
+          score += 15
+        end
+        
+        # Add all other scores
         score += 1.5 * bad_links
+        mismatchScore = (bad_links > 0 ? 0.5 : 0) * mismatched
         score += (mismatchScore > 4 ? 4 : mismatchScore)
         score += (contains_gibberish ? 1 : 0)
         score += 0.5 * marketing_count
@@ -667,6 +839,11 @@ module Postal
         score += 2 * pornographic_count
         score += 1.5 * finance_count
         score += (finance_count > 0 ? 0.5 : 0) * finance_count1
+        
+        # Add new detection scores
+        score += from_mismatch_score
+        score += restricted_domain_score
+        score += 2 * confirmation_phrases_score
 
         #use wordiness to determine newsletter
         if body_lower.length > 2000 && body_lower.include?('unsubscribe')

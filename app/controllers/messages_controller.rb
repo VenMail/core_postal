@@ -260,12 +260,12 @@
   def ban_ip
     ip = params[:ip].to_s.strip
     if ip.blank?
-      redirect_to_with_json [:headers, organization, @server, @message.id], :alert => "No IP provided to ban."
+      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "No IP provided to ban."
       return
     end
 
     @server.message_db.suppression_list.add(:ip, ip, :reason => "Manual IP ban from message view")
-    redirect_to_with_json [:headers, organization, @server, @message.id], :notice => "IP #{ip} added to suppression list."
+    redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP #{ip} added to suppression list."
   end
 
   def remove_from_queue

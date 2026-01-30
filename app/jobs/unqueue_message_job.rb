@@ -348,12 +348,14 @@ class UnqueueMessageJob < Postal::Job
                 queued_message.message.parse_content
               end
 
-              # Inspect outgoing messages when there's a threshold set for the server
-              if queued_message.message.inspected == 0 && queued_message.server.outbound_spam_threshold
+              # Always inspect outgoing messages for spam
+              if queued_message.message.inspected == 0
                 log "#{log_prefix} Inspecting message"
                 queued_message.message.inspect_message
                 if queued_message.message.inspected == 1
-                  if queued_message.message.spam_score >= queued_message.server.outbound_spam_threshold
+                  # Use server's outbound threshold if configured, otherwise use 15 as default
+                  outbound_threshold = queued_message.server.outbound_spam_threshold || 15
+                  if queued_message.message.spam_score >= outbound_threshold
                     queued_message.message.update(:spam => 1)
                   end
                   log "#{log_prefix} Message inspected successfully"
@@ -362,7 +364,9 @@ class UnqueueMessageJob < Postal::Job
 
               if queued_message.message.spam == 1
                 queued_message.message.database.statistics.increment_all(Time.now, 'spam')
-                queued_message.message.create_delivery("HardFail", :details => "Message is likely spam. Threshold is #{queued_message.server.outbound_spam_threshold} and the message scored #{queued_message.message.spam_score}.")
+                # Use the actual threshold that was applied for the error message
+                outbound_threshold = queued_message.server.outbound_spam_threshold || 15
+                queued_message.message.create_delivery("HardFail", :details => "Message is likely spam. Threshold is #{outbound_threshold} and the message scored #{queued_message.message.spam_score}.")
                 queued_message.destroy
                 log "#{log_prefix} Message is spam (#{queued_message.message.spam_score}). Hard failing."
                 next
