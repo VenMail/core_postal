@@ -9,7 +9,7 @@
 
   before_action { @server = organization.servers.present.find_by_permalink!(params[:server_id]) }
   before_action { params[:id] && @message = @server.message_db.message(params[:id].to_i) }
-  before_action :admin_required, :only => [:recall, :ban_ip]
+  before_action :admin_required, :only => [:recall, :recall_individual, :ban_ip]
 
   def new
     if params[:direction] == 'incoming'
@@ -157,6 +157,45 @@
                "Recall notice sent to #{sent_count} recipient#{'s' if sent_count != 1} from the last #{hours} hours."
              end
     redirect_to_with_json [:outgoing, organization, @server, :messages], :notice => notice
+  end
+
+  def recall_individual
+    recall_params = params.fetch(:recall, {}).permit(:subject, :body).to_h
+    recall_subject = recall_params[:subject].to_s.strip
+    recall_body = recall_params[:body].to_s.strip
+
+    if recall_subject.blank? || recall_body.blank?
+      respond_to do |wants|
+        wants.json { render :json => {:flash => {:alert => "Please provide all required fields: subject and body."}} }
+      end
+      return
+    end
+
+    # For individual recall, just send to the current message recipient
+    recipient = @message.rcpt_to
+    sent_count = 0
+    
+    if recipient.present?
+      # Skip if recipient is on suppression list
+      unless @server.message_db.suppression_list.get(:recipient, recipient)
+        begin
+          AppMailer.recall_notice(recipient, recall_subject, recall_body).deliver_now
+          sent_count += 1
+        rescue => e
+          Rails.logger.error("Failed to send recall notice to #{recipient}: #{e.message}")
+        end
+      end
+    end
+
+    notice = if sent_count > 0
+               "Recall notice sent to #{recipient}."
+             else
+               "Could not send recall notice to #{recipient}."
+             end
+    
+    respond_to do |wants|
+      wants.json { render :json => {:flash => {:notice => notice}} }
+    end
   end
 
   def incoming

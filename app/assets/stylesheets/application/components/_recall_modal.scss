@@ -1,0 +1,119 @@
+// Recall Modal Styles
+.modal__content--small {
+  max-width: 500px;
+}
+
+.modal__title-icon {
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.recallForm__loading {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.loadingState {
+  &__icon {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 16px;
+    animation: spin 1s linear infinite;
+  }
+  
+  &__text {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #333;
+  }
+  
+  &__subtext {
+    color: #666;
+    font-size: 14px;
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.alert {
+  display: flex;
+  align-items: flex-start;
+  padding: 16px;
+  margin-bottom: 20px;
+  border-radius: 6px;
+  border-left: 4px solid #007bff;
+  background-color: #f8f9fa;
+  
+  &--info {
+    border-left-color: #007bff;
+    background-color: #e7f3ff;
+  }
+  
+  &__icon {
+    width: 20px;
+    height: 20px;
+    margin-right: 12px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  
+  &__content {
+    flex: 1;
+  }
+  
+  &__title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #333;
+    font-size: 14px;
+  }
+  
+  &__text {
+    color: #666;
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 0;
+  }
+}
+
+.recipientInfo {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  margin-top: 20px;
+  border: 1px solid #e9ecef;
+  
+  &__icon {
+    width: 20px;
+    height: 20px;
+    margin-right: 12px;
+    flex-shrink: 0;
+    color: #666;
+  }
+  
+  &__content {
+    flex: 1;
+  }
+  
+  &__label {
+    font-size: 12px;
+    color: #666;
+    margin: 0 0 2px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  &__email {
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+    word-break: break-all;
+  }
+}

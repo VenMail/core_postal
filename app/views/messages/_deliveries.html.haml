@@ -42,6 +42,10 @@
           = link_to "#", :class => "button button--small js-ip-selector-trigger", :data => {:message_id => message.id} do
             = image_tag 'icons/car.svg', :class => 'button__icon'
             Choose IP
+        - if message.scope == 'outgoing' && current_user.admin?
+          = link_to "#", :class => "button button--small button--warning js-recall-trigger", :data => {:message_id => message.id} do
+            = image_tag 'icons/return-path.svg', :class => 'button__icon'
+            Recall Message
 
   - if message.deliveries.empty?
     %li.deliveryList__item

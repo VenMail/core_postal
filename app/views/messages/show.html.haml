@@ -103,3 +103,46 @@
         = link_to "Cancel", "#", :class => "button button--dark js-modal-close"
         = link_to "Retry with Selected IP", "#", :class => "button button--positive js-ip-selector-submit", :data => {:message_id => @message.id}
 
+/ Recall Message Modal
+.modal.js-recall-modal.is-hidden
+  .modal__overlay.js-modal-close
+  .modal__content.modal__content--small
+    .modal__header
+      %h3.modal__title
+        = image_tag 'icons/return-path.svg', :class => 'modal__title-icon'
+        Recall Message
+      %a.modal__close.js-modal-close{:href => "#"} ×
+    .modal__body
+      .recallForm
+        .recallForm__loading.is-hidden
+          .loadingState
+            = image_tag 'icons/conveyor.svg', :class => 'loadingState__icon'
+            %p.loadingState__text Sending recall notice...
+            %p.loadingState__subtext This may take a few moments
+        .recallForm__content
+          .alert.alert--info
+            = image_tag 'icons/help.svg', :class => 'alert__icon'
+            .alert__content
+              %p.alert__title About Recall
+              %p.alert__text Send a recall notice to the original recipient of this message. This helps inform them that the previous message should be disregarded.
+          
+          = form_tag recall_individual_organization_server_message_path(organization, @server, @message.id), :method => :post, :class => 'js-recall-form', :remote => true do
+            .formGroup
+              = label_tag "recall_subject", "Recall Subject", :class => 'formGroup__label'
+              = text_field_tag "recall[subject]", nil, :class => 'formGroup__input', :placeholder => 'e.g., Important: Please disregard previous message', :required => true, :id => 'recall_subject'
+              %small.formGroup__help Clear, concise subject line indicating this is a recall notice
+            .formGroup
+              = label_tag "recall_body", "Recall Message", :class => 'formGroup__label'
+              = text_area_tag "recall[body]", nil, :class => 'formGroup__input', :rows => 4, :placeholder => 'Explain why the message should be disregarded and provide any necessary context...', :required => true, :id => 'recall_body'
+              %small.formGroup__help Be clear and professional in your explanation
+              
+            .recipientInfo
+              = image_tag 'icons/email.svg', :class => 'recipientInfo__icon'
+              .recipientInfo__content
+                %p.recipientInfo__label Will be sent to:
+                %p.recipientInfo__email= @message.rcpt_to || "Unknown recipient"
+    .modal__footer
+      .buttonSet
+        = link_to "Cancel", "#", :class => "button button--dark js-modal-close"
+        = link_to "Send Recall Notice", "#", :class => "button button--positive js-recall-submit"
+

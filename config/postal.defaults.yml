@@ -113,8 +113,8 @@ dns:
   custom_return_path_prefix: psrp
 
 smtp:
-  host: 127.0.0.1
-  port: 25
+  host: pxa.mail.venmail.io
+  port: 587
   username: # Complete when Postal is running and you can
   password: # generate the credentials within the interface.
   from_name: Postal

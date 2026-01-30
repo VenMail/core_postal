@@ -38,6 +38,8 @@ Rails.application.routes.draw do
         get :spam_checks, :on => :member
         post :retry, :on => :member
         post :retry_with_ip, :on => :member
+        post :recall, :on => :member
+        post :recall_individual, :on => :member
         post :cancel_hold, :on => :member
         post :ban_ip, :on => :member
         get :suppressions, :on => :collection

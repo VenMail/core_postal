@@ -20,7 +20,39 @@ module Postal
     'instagram.com',
     'instagr.am',
     'youtube.com',
-    'youtu.be'
+    'youtu.be',
+    # Legitimate email service and marketing domains
+    'mailchimp.com',
+    'list-manage.com',
+    'mcsv.net',
+    'sendgrid.net',
+    'sendgrid.com',
+    'campaignmonitor.com',
+    'campaignmonitor.com.au',
+    'constantcontact.com',
+    'ctct.com',
+    'hubspot.com',
+    'hs-sites.com',
+    'hubspotemail.net',
+    'convertkit.com',
+    'convertkit-mail.com',
+    'klaviyo.com',
+    'klclick.com',
+    'aweber.com',
+    'aweber.net',
+    'getresponse.com',
+    'mailgun.org',
+    'mailgun.com',
+    'mandrillapp.com',
+    'postmarkapp.com',
+    'sparkpost.com',
+    'sparkpostmail.com',
+    'sendinblue.com',
+    'brevo.com',
+    'activecampaign.com',
+    'drip.com',
+    'customer.io',
+    'omnisend.com'
     ].freeze
 
     MARKETING_KEYWORDS = [
@@ -771,7 +803,53 @@ module Postal
         # Extract domain from email address, handling various formats
         email.match(/@([^>\s]+)/)&.captures&.first
       end
-                  
+      
+      def check_phishing_tracking_links(links)
+        return 0 unless links.is_a?(Hash)
+        
+        phishing_score = 0
+        
+        links.each do |href, labels|
+          next if href.nil? || href.empty?
+          next unless href.is_a?(String)
+          next if href.start_with?('mailto:')
+          
+          # Parse the URL
+          begin
+            uri = URI.parse(href.downcase)
+            next unless uri.host
+            
+            host = uri.host
+            path = uri.path + (uri.query ? "?#{uri.query}" : "")
+            
+            # Extract base domain from host
+            base_domain = extract_href_base_domain(href)
+            next unless base_domain
+            
+            # Check if path contains service names that don't match the domain
+            # Using existing tracking domains and trusted domains for reference
+            service_names = ['sendgrid', 'mailchimp', 'mandrill', 'campaign', 'hubspot', 'mailgun', 
+                           'postmark', 'sparkpost', 'ses', 'sendinblue', 'brevo', 'activecampaign',
+                           'drip', 'convertkit', 'klaviyo', 'aweber', 'getresponse']
+            
+            service_names.each do |service|
+              if path.include?(service) && !base_domain.include?(service)
+                log "Phishing tracking link: #{host} contains '#{service}' in URL but domain doesn't match"
+                phishing_score += 8
+                break
+              end
+            end
+            
+          rescue URI::InvalidURIError
+            # Invalid URL, skip
+            next
+          end
+        end
+        
+        log "#{phishing_score} phishing tracking link points found" if phishing_score > 0
+        phishing_score
+      end
+                   
       def classify_email(sender_email, parsed, headers = [], subject = '')
         links = extract_links(parsed)
         bad_links = check_for_spam_links(links)
@@ -798,6 +876,7 @@ module Postal
         from_mismatch_score = check_from_name_email_mismatch(from_header)
         restricted_domain_score = check_restricted_domain_priority(headers, from_domain)
         confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower)
+        phishing_tracking_score = check_phishing_tracking_links(links)
 
         gibberish_pattern = /(?<![aeiouy])[aeiouy]{3,}(?![aeiouy])|(?<![bcdfghjklmnpqrstvwxyz])[bcdfghjklmnpqrstvwxyz]{3,}(?![bcdfghjklmnpqrstvwxyz])/
         contains_gibberish = body_lower.match?(gibberish_pattern)
@@ -820,6 +899,7 @@ module Postal
         log "#{from_mismatch_score} from name/email mismatch score"
         log "#{restricted_domain_score} restricted domain score"
         log "#{confirmation_phrases_score} confirmation phrases score"
+        log "#{phishing_tracking_score} phishing tracking links score"
 
         score = 0
         
@@ -833,7 +913,9 @@ module Postal
         mismatchScore = (bad_links > 0 ? 0.5 : 0) * mismatched
         score += (mismatchScore > 4 ? 4 : mismatchScore)
         score += (contains_gibberish ? 1 : 0)
-        score += 0.5 * marketing_count
+        marketing_score = 0.25 * marketing_count  # Reduced from 0.5 to prevent false positives
+        marketing_score = [marketing_score, 3.0].min  # Cap at 3.0 points to prevent accumulation
+        score += marketing_score
         score += 1 * spam_count
         score += 1.5 * offensive_count
         score += 2 * pornographic_count
@@ -844,11 +926,12 @@ module Postal
         score += from_mismatch_score
         score += restricted_domain_score
         score += 2 * confirmation_phrases_score
+        score += phishing_tracking_score
 
         #use wordiness to determine newsletter
-        if body_lower.length > 2000 && body_lower.include?('unsubscribe')
+        if body_lower.length > 1024 && body_lower.include?('unsubscribe')
           length = body_lower.length
-          lower_bound = 2000.0
+          lower_bound = 1024.0
           upper_bound = 12000.0
           min_divisor = 2.0
           max_divisor = 10.0
