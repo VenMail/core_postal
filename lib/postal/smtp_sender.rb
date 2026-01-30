@@ -187,12 +187,12 @@ module Postal
             return result
           else
             @smtp_client.rset_errors
-            log "Sending message #{message.server.id}::#{message.id} using direct SMTP commands"
+            log "Sending the message #{message.server.id}::#{message.id} using direct SMTP commands"
             @smtp_client.mailfrom(mail_from)
             recipients.each do |recipient|
               @smtp_client.rcptto(recipient)
             end
-            smtp_result = @smtp_client.data(raw_message + "\r\n.\r\n")
+            smtp_result = @smtp_client.data(raw_message)
           end
         rescue Errno::ECONNRESET, Errno::EPIPE, OpenSSL::SSL::SSLError
           if (tries += 1) < 2
@@ -322,7 +322,6 @@ module Postal
     end
 
     def extract_headers_and_body(raw_message)
-      # Normalize line endings first to match what DKIM signing used
       normalized_message = raw_message.gsub(/\r?\n/, "\r\n")
       parts = normalized_message.split(/\r\n\r\n/, 2)
       headers = parts[0].split(/\r\n/)
