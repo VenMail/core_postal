@@ -223,12 +223,20 @@ module Postal
           log "\e[33m   WARN: AUTH temporarily rate limited for #{username} from #{@ip_address}\e[0m"
           return '421 Temporarily rate limited'
         end
+        
+        # Check if IP is globally banned
+        if @ip_address && GlobalSuppression.ip_banned?(@ip_address)
+          log "\e[33m   WARN: AUTH attempt from globally banned IP #{@ip_address}\e[0m"
+          return '535 Your IP address has been banned'
+        end
+        
         # Check if the provided key (password) is a valid credential key
         if @credential = Credential.where(type: 'SMTP', key: password).first
           if @credential.hold?
             log "\e[33m   WARN: AUTH attempt with held credential (#{@credential.id})\e[0m"
             return '535 Invalid credential'
           end
+          
           @credential.use
           record_auth_success(username)
           "235 Granted for #{@credential.server.organization.permalink}/#{@credential.server.permalink}"
@@ -263,6 +271,12 @@ module Postal
         end
 
         return false unless server.respond_to?(:message_db)
+
+        # Check if IP is globally banned
+        if @ip_address && GlobalSuppression.ip_banned?(@ip_address)
+          log "\e[33m   WARN: AUTH attempt from globally banned IP #{@ip_address}\e[0m"
+          return false
+        end
 
         # Query the database to retrieve the hashed password for the provided email
         user = server.message_db.mail_user.find(email)

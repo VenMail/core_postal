@@ -24,6 +24,7 @@ module Clockwork
   every 1.day, 'every-day', :at => ['03:00'] do
     ProcessMessageRetentionJob.queue(:main)
     PruneSuppressionListsJob.queue(:main)
+    GlobalSuppression.prune_expired
   end
 
 end
