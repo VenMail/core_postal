@@ -7,7 +7,7 @@ class GlobalSuppression < ApplicationRecord
   
   before_validation :normalize_ip_address
   
-  scope :active, -> { where(keep_until: nil).or(where(keep_until: Time.now..)) }
+  scope :active, -> { where(keep_until: nil).or(where("keep_until >= ?", Time.now)) }
   scope :by_ip, ->(ip) { where(ip_address: ip) }
   
   def self.ban_ip(ip_address, reason: "Manual IP ban")
@@ -35,7 +35,7 @@ class GlobalSuppression < ApplicationRecord
   end
   
   def self.prune_expired
-    where(keep_until: ...Time.now).destroy_all
+    where("keep_until < ?", Time.now).destroy_all
   end
   
   def active?

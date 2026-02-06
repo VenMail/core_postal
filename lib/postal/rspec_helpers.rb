@@ -18,5 +18,30 @@ module Postal
       server.message_db.message(result[:id])
     end
 
+    # Helper methods for generating test data
+    def generate_ip_address
+      "192.168.#{rand(1..255)}.#{rand(1..255)}"
+    end
+
+    def generate_email
+      "test#{rand(1000..9999)}@example.com"
+    end
+
+    def generate_username
+      "user_#{rand(1000..9999)}"
+    end
+
+    def generate_password
+      SecureRandom.hex(16)
+    end
+
+    def generate_token
+      SecureRandom.hex(32)
+    end
+
+    def generate_uuid
+      SecureRandom.uuid
+    end
+
   end
 end
