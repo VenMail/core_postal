@@ -1,4 +1,4 @@
-class AddHoldTimestampsToCredentials < ActiveRecord::Migration[6.0]
+class AddHoldTimestampsToCredentials < ActiveRecord::Migration[5.2]
   def change
     # Add timestamps to track when credentials were put on hold
     # This will help with more accurate bounce rate reset logic
