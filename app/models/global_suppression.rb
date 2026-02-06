@@ -24,7 +24,7 @@ class GlobalSuppression < ApplicationRecord
     normalized_ip = normalize_ip_address_string(ip_address)
     return false unless normalized_ip
     
-    where(ip_address: normalized_ip).destroy_all > 0
+    where(ip_address: normalized_ip).destroy_all.count > 0
   end
   
   def self.ip_banned?(ip_address)

@@ -245,7 +245,8 @@ RSpec.describe GlobalSuppression, type: :model do
         expect(GlobalSuppression.count).to eq(3)
         
         result = GlobalSuppression.prune_expired
-        expect(result).to eq(1)  # Should destroy 1 expired record
+        expect(result).to be_an(Array)
+        expect(result.count).to eq(1)  # Should destroy 1 expired record
         
         expect(GlobalSuppression.count).to eq(2)
         expect(GlobalSuppression.find_by(ip_address: '192.168.1.1')).not_to be_nil  # Permanent remains
@@ -253,7 +254,7 @@ RSpec.describe GlobalSuppression, type: :model do
         expect(GlobalSuppression.find_by(ip_address: '192.168.1.3')).to be_nil      # Expired removed
       end
 
-      it 'returns 0 when no expired bans exist' do
+      it 'returns empty array when no expired bans exist' do
         GlobalSuppression.create!(
           ip_address: '192.168.1.1',
           reason: 'Permanent ban',
@@ -261,7 +262,8 @@ RSpec.describe GlobalSuppression, type: :model do
         )
         
         result = GlobalSuppression.prune_expired
-        expect(result).to eq(0)
+        expect(result).to be_an(Array)
+        expect(result).to be_empty
         expect(GlobalSuppression.count).to eq(1)
       end
     end
