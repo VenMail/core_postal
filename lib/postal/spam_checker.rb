@@ -509,7 +509,16 @@ module Postal
       'package dispatched',
       'order confirmed',
       'payment processed',
-      'transaction completed'
+      'transaction completed',
+      'temporarily restricted',
+      'account suspended',
+      'account has been suspended',
+      'appeal',
+      'community standards',
+      'intellectual property',
+      'ownership rights',
+      'ownership verification',
+      'resolution center'
     ].freeze
 
     # Priority indicators that should be blocked from restricted domains
@@ -558,10 +567,39 @@ module Postal
       'address update required',
       'address confirmation required',
       'respond within 24 hours',
+      'within 24 hours',
+      '24 hours',
       'final reminder',
       'final notice',
       'shipment on hold',
-      'delivery awaiting confirmation'
+      'delivery awaiting confirmation',
+      'permanently suspended',
+      'temporarily restricted'
+    ].freeze
+
+    # Known brands that are commonly impersonated
+    IMPERSONATED_BRANDS = [
+      'meta', 'facebook', 'instagram', 'whatsapp', 'messenger',
+      'google', 'gmail', 'youtube', 'drive', 'workspace',
+      'apple', 'icloud', 'app store', 'itunes',
+      'microsoft', 'outlook', 'office', 'teams', 'azure',
+      'amazon', 'aws', 'prime',
+      'netflix', 'spotify', 'linkedin', 'twitter', 'x',
+      'paypal', 'venmo', 'cash app', 'zelle',
+      'chase', 'bank of america', 'wells fargo', 'citibank',
+      'dropbox', 'slack', 'zoom', 'adobe', 'salesforce'
+    ].freeze
+
+    # Patterns indicating random/official-looking but fake sender addresses
+    RANDOM_SENDER_PATTERNS = [
+      # Long random usernames before @
+      /^[a-z]{20,}@/i,
+      # Consonant-heavy random strings
+      /^[bcdfghjklmnpqrstvwxyz]{12,}@/i,
+      # Repeated character patterns
+      /^([a-z])\1{8,}@/i,
+      # Sequential patterns
+      /^(abc|xyz|123|qwe|asd|zxc)[a-z]*@/i
     ].freeze
 
     class << self
@@ -586,6 +624,79 @@ module Postal
         @header_tracker[current_time] = fingerprint
         
         matching_count
+      end
+      
+      def check_brand_domain_mismatch(subject, body_lower, sender_domain)
+        return 0 unless sender_domain && (subject || body_lower)
+        
+        score = 0
+        text = (subject.to_s + ' ' + body_lower.to_s).downcase
+        sender_domain = sender_domain.downcase
+        
+        # Skip if sender is already trusted
+        return 0 if TRUSTED_DOMAINS.any? { |domain| sender_domain.end_with?(domain) }
+        
+        IMPERSONATED_BRANDS.each do |brand|
+          next unless text.include?(brand)
+          
+          # Check if sender domain contains the brand name
+          domain_contains_brand = sender_domain.include?(brand)
+          
+          # Allow some common TLD variations for legitimate domains
+          legitimate_variants = [
+            "#{brand}.com", "#{brand}.org", "#{brand}.net",
+            "#{brand}.io", "#{brand}.co", "#{brand}.app",
+            "get#{brand}.com", "#{brand}support.com"
+          ]
+          is_legitimate_variant = legitimate_variants.any? { |variant| sender_domain.include?(variant) }
+          
+          unless domain_contains_brand || is_legitimate_variant
+            log "Brand/domain mismatch detected: '#{brand}' mentioned but sender is #{sender_domain}"
+            score += 6
+          end
+        end
+        
+        score
+      end
+      
+      def check_random_sender_address(sender_email)
+        return 0 unless sender_email
+        
+        local_part = sender_email.split('@').first&.downcase
+        return 0 unless local_part
+        
+        # Check against random patterns
+        RANDOM_SENDER_PATTERNS.each do |pattern|
+          if local_part.match?(pattern)
+            log "Random sender address detected: #{sender_email}"
+            return 4
+          end
+        end
+        
+        # Additional checks for suspicious characteristics
+        score = 0
+        
+        # Very long usernames
+        if local_part.length > 25
+          log "Very long username detected: #{sender_email}"
+          score += 2
+        end
+        
+        # High consonant-to-vowel ratio (common in random strings)
+        consonants = local_part.count('bcdfghjklmnpqrstvwxyz')
+        vowels = local_part.count('aeiou')
+        if vowels > 0 && (consonants.to_f / vowels) > 4
+          log "High consonant/vowel ratio: #{sender_email}"
+          score += 2
+        end
+        
+        # Contains numbers mixed with letters in suspicious patterns
+        if local_part.match?(/\d{3,}/) && local_part.match?(/[a-z]{5,}/)
+          log "Suspicious alphanumeric pattern: #{sender_email}"
+          score += 1
+        end
+        
+        score
       end
       def extract_links(content)
         links = {}
@@ -935,6 +1046,8 @@ module Postal
         restricted_domain_score = check_restricted_domain_priority(headers, from_domain)
         confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower)
         phishing_tracking_score = check_phishing_tracking_links(links)
+        brand_domain_mismatch_score = check_brand_domain_mismatch(subject, body_lower, from_domain)
+        random_sender_score = check_random_sender_address(sender_email)
         greeting_urgency_score = email_greeting_urgency_score(
           body_str,
           subject,
@@ -967,6 +1080,8 @@ module Postal
         log "#{restricted_domain_score} restricted domain score"
         log "#{confirmation_phrases_score} confirmation phrases score"
         log "#{phishing_tracking_score} phishing tracking links score"
+        log "#{brand_domain_mismatch_score} brand/domain mismatch score"
+        log "#{random_sender_score} random sender address score"
         log "#{greeting_urgency_score} email greeting urgency score"
 
         score = 0
@@ -995,6 +1110,8 @@ module Postal
         score += restricted_domain_score
         score += 2 * confirmation_phrases_score
         score += phishing_tracking_score
+        score += brand_domain_mismatch_score
+        score += random_sender_score
         score += greeting_urgency_score
 
         #use wordiness to determine newsletter

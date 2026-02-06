@@ -4,6 +4,7 @@ module Postal
     eager_autoload do
       autoload :Clamav
       autoload :Rspamd
+      autoload :SpamChecker
       autoload :SpamAssassin
     end
   end

@@ -8,18 +8,6 @@ module Postal
       end
 
       def inspect_message(inspection)
-        raw_message = inspection.message.raw_message
-
-        spam_score = SpamChecker.classify_email(inspection.message.mail_from, raw_message)
-        if spam_score > 5
-          if spam_score > 20
-            inspection.spam_checks << SpamCheck.new("V_SPAM", spam_score, "Message classified as spam")
-            return
-          else
-            inspection.spam_checks << SpamCheck.new("V_SPAM", spam_score / 2.0, "Venmail pre-classifier spam score")
-          end
-        end
-
         response = request(inspection.message, inspection.scope)
         response = JSON.parse(response.body)
         return unless response['symbols'].is_a?(Hash)

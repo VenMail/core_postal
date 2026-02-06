@@ -57,5 +57,7 @@ services:
       - "11333:11333"
       - "11334:11334"
       - "11335:11335"
+    environment:
+      RSPAMD_PASSWORD: "password"
     volumes:
       - ./docker/rspamd:/etc/rspamd
