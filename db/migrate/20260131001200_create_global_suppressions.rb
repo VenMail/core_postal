@@ -1,4 +1,4 @@
-class CreateGlobalSuppressions < ActiveRecord::Migration[7.0]
+class CreateGlobalSuppressions < ActiveRecord::Migration[5.2]
   def change
     create_table :global_suppressions do |t|
       t.string :ip_address, null: false, index: { unique: true }
