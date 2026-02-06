@@ -1,6 +1,6 @@
 FactoryBot.define do
   factory :global_suppression do
-    ip_address { generate(:ip_address) }
+    sequence(:ip_address) { |n| "192.168.#{n % 255}.#{(n / 255) % 255}" }
     reason { 'Test ban' }
     keep_until { nil }
 
@@ -17,10 +17,9 @@ FactoryBot.define do
     server
     url { 'https://example.com/webhook' }
     event { 'message.delivered' }
-    payload { { 'message_id' => generate(:uuid), 'status' => 'delivered' } }
+    payload { { 'message_id' => SecureRandom.uuid, 'status' => 'delivered' } }
     attempts { 0 }
     retry_after { nil }
-    uuid { generate(:uuid) }
 
     trait :with_webhook do
       association :webhook, :factory => :webhook
@@ -34,24 +33,23 @@ FactoryBot.define do
   end
 
   factory :user_invite do
-    organization
-    email_address { generate(:email) }
-    token { generate(:token) }
+    sequence(:email_address) { |n| "invite#{n}@example.com" }
     expires_at { 7.days.from_now }
-    user { nil }
 
     trait :expired do
       expires_at { 1.hour.ago }
     end
 
-    trait :accepted do
-      association :user
+    trait :with_organizations do
+      after(:build) do |invite|
+        invite.organizations << build(:organization)
+      end
     end
   end
 
   factory :queued_message do
     server
-    message_id { generate(:uuid) }
+    sequence(:message_id) { |n| "msg-#{n}-#{SecureRandom.hex(8)}" }
     domain { 'example.com' }
     attempts { 0 }
     manual { false }
@@ -105,15 +103,11 @@ FactoryBot.define do
     event { 'message.delivered' }
   end
 
-  factory :ip_address do
+  factory :ip_address, class: 'IPAddress' do
     ip_pool
-    address { generate(:ip_address) }
-    priority { 1 }
-    enabled { true }
-
-    trait :disabled do
-      enabled { false }
-    end
+    sequence(:ipv4) { |n| "10.0.#{n % 255}.#{(n / 255) % 255}" }
+    sequence(:hostname) { |n| "mail-#{n}.example.com" }
+    priority { 100 }
 
     trait :high_priority do
       priority { 10 }
@@ -123,8 +117,8 @@ FactoryBot.define do
   factory :credential do
     server
     type { 'SMTP' }
-    username { generate(:username) }
-    password { generate(:password) }
+    sequence(:username) { |n| "user#{n}" }
+    password { SecureRandom.hex(16) }
     enabled { true }
 
     trait :smtp do

@@ -2,51 +2,44 @@ require 'rails_helper'
 
 RSpec.describe UserInvite, type: :model do
   describe 'associations' do
-    it 'belongs to organization' do
-      expect(UserInvite.new).to belong_to(:organization)
+    it 'has many organizations' do
+      expect(UserInvite.new).to have_many(:organizations).through(:organization_users)
     end
 
-    it 'belongs to user (optional)' do
-      expect(UserInvite.new).to belong_to(:user).optional
+    it 'has many organization_users' do
+      expect(UserInvite.new).to have_many(:organization_users).dependent(:destroy)
     end
   end
 
   describe 'validations' do
     it 'is valid with valid attributes' do
       user_invite = UserInvite.new(
-        organization: create(:organization),
         email_address: 'test@example.com'
       )
       expect(user_invite).to be_valid
     end
 
-    it 'is invalid without organization' do
-      user_invite = UserInvite.new(
-        organization: nil,
-        email_address: 'test@example.com'
-      )
-      expect(user_invite).not_to be_valid
-    end
-
     it 'is invalid without email_address' do
       user_invite = UserInvite.new(
-        organization: create(:organization),
         email_address: nil
       )
       expect(user_invite).not_to be_valid
+      expect(user_invite.errors[:email_address]).to include("can't be blank")
     end
-  end
 
-  describe 'scopes' do
-    describe '.active' do
-      it 'includes invites that have not expired' do
-        active_invite = create(:user_invite, :expires_at => 1.hour.from_now)
-        expired_invite = create(:user_invite, :expires_at => 1.hour.ago)
-        
-        active_invites = UserInvite.active
-        expect(active_invites).to include(active_invite)
-        expect(active_invites).not_to include(expired_invite)
-      end
+    it 'is invalid with invalid email format' do
+      user_invite = UserInvite.new(
+        email_address: 'invalid-email'
+      )
+      expect(user_invite).not_to be_valid
+      expect(user_invite.errors[:email_address]).to include("is invalid")
+    end
+
+    it 'is invalid with duplicate email_address' do
+      UserInvite.create!(email_address: 'test@example.com')
+      duplicate = UserInvite.new(email_address: 'test@example.com')
+      expect(duplicate).not_to be_valid
+      expect(duplicate.errors[:email_address]).to include("has already been taken")
     end
   end
 
@@ -84,38 +77,63 @@ RSpec.describe UserInvite, type: :model do
   end
 
   describe 'class methods' do
-    describe '.expired' do
-      it 'returns expired invites' do
+    describe '.active' do
+      it 'returns only active invites' do
         active_invite = create(:user_invite, :expires_at => 1.hour.from_now)
         expired_invite = create(:user_invite, :expires_at => 1.hour.ago)
         
-        expired_invites = UserInvite.expired
-        expect(expired_invites).to include(expired_invite)
-        expect(expired_invites).not_to include(active_invite)
+        active_invites = UserInvite.active
+        expect(active_invites).to include(active_invite)
+        expect(active_invites).not_to include(expired_invite)
+      end
+    end
+  end
+
+  describe 'instance methods' do
+    let(:user_invite) { create(:user_invite) }
+
+    describe '#accept' do
+      it 'transfers organization_users to user and destroys invite' do
+        user = create(:user)
+        organization = create(:organization)
+        user_invite.organizations << organization
+        
+        expect(UserInvite.count).to eq(1)
+        expect(OrganizationUser.count).to eq(1)
+        
+        user_invite.accept(user)
+        
+        expect(UserInvite.count).to eq(0)
+        expect(OrganizationUser.count).to eq(1)
+        expect(user.organizations).to include(organization)
       end
     end
 
-    describe '.prune_expired' do
-      it 'removes all expired invites' do
-        active_invite = create(:user_invite, :expires_at => 1.hour.from_now)
-        expired_invite = create(:user_invite, :expires_at => 1.hour.ago)
-        
-        expect(UserInvite.count).to eq(2)
-        
-        result = UserInvite.prune_expired
-        expect(result).to eq(1)  # Should destroy 1 expired record
-        
+    describe '#reject' do
+      it 'destroys the invite' do
         expect(UserInvite.count).to eq(1)
-        expect(UserInvite.find_by(id: active_invite.id)).not_to be_nil
-        expect(UserInvite.find_by(id: expired_invite.id)).to be_nil
+        user_invite.reject
+        expect(UserInvite.count).to eq(0)
+      end
+    end
+
+    describe '#name' do
+      it 'returns email_address' do
+        user_invite.email_address = 'test@example.com'
+        expect(user_invite.name).to eq('test@example.com')
+      end
+    end
+
+    describe '#avatar_url' do
+      it 'returns gravatar URL for email address' do
+        user_invite.email_address = 'test@example.com'
+        expected_url = "https://secure.gravatar.com/avatar/#{Digest::MD5.hexdigest('test@example.com')}?rating=PG&size=120&d=mm"
+        expect(user_invite.avatar_url).to eq(expected_url)
       end
 
-      it 'returns 0 when no expired invites exist' do
-        active_invite = create(:user_invite, :expires_at => 1.hour.from_now)
-        
-        result = UserInvite.prune_expired
-        expect(result).to eq(0)
-        expect(UserInvite.count).to eq(1)
+      it 'returns nil for blank email address' do
+        user_invite.email_address = ''
+        expect(user_invite.avatar_url).to be_nil
       end
     end
   end

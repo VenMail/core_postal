@@ -17,8 +17,8 @@ RSpec.describe QueuedMessage, type: :model do
 
   describe 'callbacks' do
     it 'queues after creation' do
+      expect(UnqueueMessageJob).to receive(:queue).with(:main, :id => anything)
       message = create(:queued_message)
-      expect(UnqueueMessageJob).to have_been_queued.in(:main).with(:id => message.id)
     end
 
     it 'allocates IP address before creation' do

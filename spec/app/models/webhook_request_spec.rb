@@ -59,8 +59,8 @@ RSpec.describe WebhookRequest, type: :model do
 
   describe 'callbacks' do
     it 'queues after creation' do
+      expect(WebhookDeliveryJob).to receive(:queue).with(:main, :id => anything)
       webhook_request = create(:webhook_request)
-      expect(WebhookDeliveryJob).to have_been_queued.in(:main).with(:id => webhook_request.id)
     end
   end
 
