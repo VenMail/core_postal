@@ -117,9 +117,8 @@ FactoryBot.define do
   factory :credential do
     server
     type { 'SMTP' }
-    sequence(:username) { |n| "user#{n}" }
-    password { SecureRandom.hex(16) }
-    enabled { true }
+    sequence(:name) { |n| "Test Credential #{n}" }
+    sequence(:key) { |n| "test-key-#{n}" }
 
     trait :smtp do
       type { 'SMTP' }
@@ -129,8 +128,15 @@ FactoryBot.define do
       type { 'API' }
     end
 
-    trait :disabled do
-      enabled { false }
+    trait :smtp_ip do
+      type { 'SMTP-IP' }
+      sequence(:key) { |n| "192.168.#{n % 255}.#{(n / 255) % 255}" }
+    end
+
+    trait :held do
+      hold { true }
+      hold_at { Time.now }
+      hold_reason { 'Test hold' }
     end
   end
 end
