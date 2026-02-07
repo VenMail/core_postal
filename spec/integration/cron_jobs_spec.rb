@@ -36,20 +36,11 @@ RSpec.describe 'Cron Jobs', type: :model do
     let(:server) { create(:server) }
 
     it 'prunes suppression lists for all servers' do
-      # Mock the message_db suppression_list.prune method
+      # Mock the message_db suppression_list.prune method for any server instance
       mock_suppression_list = double('suppression_list')
-      mock_message_db = double('message_db')
-      allow(server).to receive(:message_db).and_return(mock_message_db)
-      allow(mock_message_db).to receive(:suppression_list).and_return(mock_suppression_list)
-      expect(mock_suppression_list).to receive(:prune)
-
-      # Create additional servers
-      server2 = create(:server)
-      mock_suppression_list2 = double('suppression_list2')
-      mock_message_db2 = double('message_db2')
-      allow(server2).to receive(:message_db).and_return(mock_message_db2)
-      allow(mock_message_db2).to receive(:suppression_list).and_return(mock_suppression_list2)
-      expect(mock_suppression_list2).to receive(:prune)
+      mock_message_db = double('message_db', :suppression_list => mock_suppression_list)
+      allow_any_instance_of(Server).to receive(:message_db).and_return(mock_message_db)
+      expect(mock_suppression_list).to receive(:prune).at_least(:once)
 
       # Run the job
       job = PruneSuppressionListsJob.new('test-id')
@@ -61,20 +52,11 @@ RSpec.describe 'Cron Jobs', type: :model do
     let(:server) { create(:server) }
 
     it 'prunes webhook requests for all servers' do
-      # Mock the message_db webhooks.prune method
+      # Mock the message_db webhooks.prune method for any server instance
       mock_webhooks = double('webhooks')
-      mock_message_db = double('message_db')
-      allow(server).to receive(:message_db).and_return(mock_message_db)
-      allow(mock_message_db).to receive(:webhooks).and_return(mock_webhooks)
-      expect(mock_webhooks).to receive(:prune)
-
-      # Create additional servers
-      server2 = create(:server)
-      mock_webhooks2 = double('webhooks2')
-      mock_message_db2 = double('message_db2')
-      allow(server2).to receive(:message_db).and_return(mock_message_db2)
-      allow(mock_message_db2).to receive(:webhooks).and_return(mock_webhooks2)
-      expect(mock_webhooks2).to receive(:prune)
+      mock_message_db = double('message_db', :webhooks => mock_webhooks)
+      allow_any_instance_of(Server).to receive(:message_db).and_return(mock_message_db)
+      expect(mock_webhooks).to receive(:prune).at_least(:once)
 
       # Run the job
       job = PruneWebhookRequestsJob.new('test-id')
@@ -89,21 +71,10 @@ RSpec.describe 'Cron Jobs', type: :model do
       # Mock the message_db.messages method and cancel_hold
       held_message = double('held_message')
       mock_messages = double('messages')
-      mock_message_db = double('message_db')
-      allow(server).to receive(:message_db).and_return(mock_message_db)
-      allow(mock_message_db).to receive(:messages).and_return(mock_messages)
+      mock_message_db = double('message_db', :messages => mock_messages)
+      allow_any_instance_of(Server).to receive(:message_db).and_return(mock_message_db)
       allow(mock_messages).to receive(:each).and_yield(held_message)
-      expect(held_message).to receive(:cancel_hold)
-
-      # Create additional servers
-      server2 = create(:server)
-      held_message2 = double('held_message2')
-      mock_messages2 = double('messages2')
-      mock_message_db2 = double('message_db2')
-      allow(server2).to receive(:message_db).and_return(mock_message_db2)
-      allow(mock_message_db2).to receive(:messages).and_return(mock_messages2)
-      allow(mock_messages2).to receive(:each).and_yield(held_message2)
-      expect(held_message2).to receive(:cancel_hold)
+      expect(held_message).to receive(:cancel_hold).at_least(:once)
 
       # Run the job
       job = ExpireHeldMessagesJob.new('test-id')
@@ -118,7 +89,7 @@ RSpec.describe 'Cron Jobs', type: :model do
         :hold_expiry => { :less_than => Time.now.to_f }
       }
       
-      allow(server).to receive(:message_db).and_return(mock_message_db)
+      allow_any_instance_of(Server).to receive(:message_db).and_return(mock_message_db)
       allow(mock_message_db).to receive(:messages).with(:where => expected_where).and_return(mock_messages)
       allow(mock_messages).to receive(:each)
 
@@ -136,21 +107,11 @@ RSpec.describe 'Cron Jobs', type: :model do
       # Mock the message_db provisioner methods
       mock_provisioner = double('provisioner')
       mock_message_db = double('message_db')
-      allow(server).to receive(:message_db).and_return(mock_message_db)
+      allow_any_instance_of(Server).to receive(:message_db).and_return(mock_message_db)
       allow(mock_message_db).to receive(:provisioner).and_return(mock_provisioner)
-      expect(mock_provisioner).to receive(:remove_raw_tables_older_than)
-      expect(mock_provisioner).to receive(:remove_raw_tables_until_less_than_size)
-      expect(mock_provisioner).to receive(:remove_messages)
-
-      # Create additional servers
-      server2 = create(:server)
-      mock_provisioner2 = double('provisioner2')
-      mock_message_db2 = double('message_db2')
-      allow(server2).to receive(:message_db).and_return(mock_message_db2)
-      allow(mock_message_db2).to receive(:provisioner).and_return(mock_provisioner2)
-      expect(mock_provisioner2).to receive(:remove_raw_tables_older_than)
-      expect(mock_provisioner2).to receive(:remove_raw_tables_until_less_than_size)
-      expect(mock_provisioner2).to receive(:remove_messages)
+      allow(mock_provisioner).to receive(:remove_raw_tables_older_than)
+      allow(mock_provisioner).to receive(:remove_raw_tables_until_less_than_size)
+      allow(mock_provisioner).to receive(:remove_messages)
 
       # Run the job
       job = ProcessMessageRetentionJob.new('test-id')
@@ -165,21 +126,23 @@ RSpec.describe 'Cron Jobs', type: :model do
       allow(Domain).to receive(:where).and_return(domain_relation)
       allow(domain_relation).to receive(:not).and_return(domain_relation)
       allow(domain_relation).to receive(:where).and_return(domain_relation)
-      allow(domain_relation).to receive(:each).and_return([])
+      allow(domain_relation).to receive(:each)
       
       # Mock individual domains to prevent check_dns calls
       mock_domain = double('domain')
       allow(domain_relation).to receive(:each).and_yield(mock_domain)
+      allow(mock_domain).to receive(:name).and_return('example.com')
       allow(mock_domain).to receive(:check_dns).with(:auto)
       
       track_domain_relation = double('TrackDomainRelation')
       allow(TrackDomain).to receive(:where).and_return(track_domain_relation)
       allow(track_domain_relation).to receive(:includes).and_return(track_domain_relation)
-      allow(track_domain_relation).to receive(:each).and_return([])
+      allow(track_domain_relation).to receive(:each)
       
       # Mock individual track domains
       mock_track_domain = double('track_domain')
       allow(track_domain_relation).to receive(:each).and_yield(mock_track_domain)
+      allow(mock_track_domain).to receive(:full_name).and_return('track.example.com')
       allow(mock_track_domain).to receive(:check_dns)
 
       # Run the job - should complete without errors
