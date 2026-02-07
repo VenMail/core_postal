@@ -245,6 +245,13 @@
 
   def retry
     if @message.raw_message?
+      # Reset spam flags when manually retrying to give message another chance
+      if @message.spam == 1 || @message.spam_score > 0
+        log "Resetting spam flags for message #{@message.id} during manual retry"
+        @message.update_columns(:spam => 0, :inspected => 0)
+        @message.reload  # Ensure fresh data
+      end
+      
       if (queued = @message.queued_message)
         queued.allocate_ip_address(exclude_current: true)
         queued.update_column(:ip_address_id, queued.ip_address&.id)
@@ -267,6 +274,13 @@
     ip_address_id = params[:ip_address_id]
     
     if @message.raw_message?
+      # Reset spam flags when manually retrying to give message another chance
+      if @message.spam == 1 || @message.spam_score > 0
+        log "Resetting spam flags for message #{@message.id} during manual retry with IP"
+        @message.update_columns(:spam => 0, :inspected => 0)
+        @message.reload  # Ensure fresh data
+      end
+      
       if @message.queued_message
         # Set the specific IP address
         @message.queued_message.update_column(:ip_address_id, ip_address_id)
