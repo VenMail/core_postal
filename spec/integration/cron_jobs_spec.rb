@@ -48,7 +48,7 @@ RSpec.describe 'Cron Jobs', type: :model do
       expect(mock_suppression_list2).to receive(:prune)
 
       # Run the job
-      job = PruneSuppressionListsJob.new
+      job = PruneSuppressionListsJob.new('test-id')
       job.perform
     end
   end
@@ -69,7 +69,7 @@ RSpec.describe 'Cron Jobs', type: :model do
       expect(mock_webhooks2).to receive(:prune)
 
       # Run the job
-      job = PruneWebhookRequestsJob.new
+      job = PruneWebhookRequestsJob.new('test-id')
       job.perform
     end
   end
@@ -94,7 +94,7 @@ RSpec.describe 'Cron Jobs', type: :model do
       expect(held_message2).to receive(:cancel_hold)
 
       # Run the job
-      job = ExpireHeldMessagesJob.new
+      job = ExpireHeldMessagesJob.new('test-id')
       job.perform
     end
 
@@ -108,7 +108,7 @@ RSpec.describe 'Cron Jobs', type: :model do
       allow(server.message_db).to receive(:messages).with(:where => expected_where).and_return(mock_messages)
       allow(mock_messages).to receive(:each)
 
-      job = ExpireHeldMessagesJob.new
+      job = ExpireHeldMessagesJob.new('test-id')
       job.perform
 
       expect(server.message_db).to have_received(:messages).with(:where => expected_where)
@@ -119,16 +119,20 @@ RSpec.describe 'Cron Jobs', type: :model do
     let(:server) { create(:server) }
 
     it 'processes message retention for all servers' do
-      # Mock the message_db retention.process method
-      mock_retention = double('retention')
-      allow(server.message_db).to receive(:retention).and_return(mock_retention)
-      expect(mock_retention).to receive(:process)
+      # Mock the message_db provisioner methods
+      mock_provisioner = double('provisioner')
+      allow(server.message_db).to receive(:provisioner).and_return(mock_provisioner)
+      expect(mock_provisioner).to receive(:remove_raw_tables_older_than)
+      expect(mock_provisioner).to receive(:remove_raw_tables_until_less_than_size)
+      expect(mock_provisioner).to receive(:remove_messages)
 
       # Create additional servers
       server2 = create(:server)
-      mock_retention2 = double('retention2')
-      allow(server2.message_db).to receive(:retention).and_return(mock_retention2)
-      expect(mock_retention2).to receive(:process)
+      mock_provisioner2 = double('provisioner2')
+      allow(server2.message_db).to receive(:provisioner).and_return(mock_provisioner2)
+      expect(mock_provisioner2).to receive(:remove_raw_tables_older_than)
+      expect(mock_provisioner2).to receive(:remove_raw_tables_until_less_than_size)
+      expect(mock_provisioner2).to receive(:remove_messages)
 
       # Run the job
       job = ProcessMessageRetentionJob.new('test-id')
@@ -139,9 +143,16 @@ RSpec.describe 'Cron Jobs', type: :model do
   describe 'CheckAllDNSJob' do
     it 'runs without errors' do
       # Mock the domain queries to avoid database dependencies
-      allow(Domain).to receive(:where).and_return([])
-      allow(TrackDomain).to receive(:where).and_return([])
-      allow(TrackDomain).to receive(:includes).and_return([])
+      domain_relation = double('ActiveRecord::Relation')
+      allow(Domain).to receive(:where).and_return(domain_relation)
+      allow(domain_relation).to receive(:not).and_return([])
+      allow(domain_relation).to receive(:where).and_return([])
+      allow(domain_relation).to receive(:each).and_return([])
+      
+      track_domain_relation = double('TrackDomainRelation')
+      allow(TrackDomain).to receive(:where).and_return(track_domain_relation)
+      allow(track_domain_relation).to receive(:includes).and_return([])
+      allow(track_domain_relation).to receive(:each).and_return([])
 
       # Run the job - should complete without errors
       expect { CheckAllDNSJob.new('test-id').perform }.not_to raise_error

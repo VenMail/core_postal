@@ -111,9 +111,12 @@ RSpec.describe WebhookRequest, type: :model do
       it 'creates requests for webhooks with all_events enabled' do
         all_events_webhook = create(:webhook, :server => server, :enabled => true, :all_events => true)
         
-        # Mock the webhook query to avoid complex joins
-        allow(server.webhooks).to receive(:enabled).and_return([all_events_webhook])
-        allow(all_events_webhook).to receive(:webhook_events).and_return([])
+        # Mock the webhook query to return an ActiveRecord::Relation
+        webhook_relation = double('ActiveRecord::Relation')
+        allow(server.webhooks).to receive(:enabled).and_return(webhook_relation)
+        allow(webhook_relation).to receive(:includes).with(:webhook_events).and_return(webhook_relation)
+        allow(webhook_relation).to receive(:references).with(:webhook_events).and_return(webhook_relation)
+        allow(webhook_relation).to receive(:where).and_return([all_events_webhook])
         
         expect {
           WebhookRequest.trigger(server, 'message.delivered', { 'message_id' => '123' })
@@ -131,12 +134,16 @@ RSpec.describe WebhookRequest, type: :model do
         past_request = create(:webhook_request, :retry_after => 5.minutes.ago)
         future_request = create(:webhook_request, :retry_after => 1.hour.from_now)
         
-        # Mock the queue method on the specific instances
-        expect(past_request).to receive(:queue)
-        expect(future_request).not_to receive(:queue)
+        # Track which requests get queued
+        queued_requests = []
+        allow_any_instance_of(WebhookRequest).to receive(:queue) do |instance|
+          queued_requests << instance.id
+        end
         
-        # Call requeue_all which should find and queue the past request
         WebhookRequest.requeue_all
+        
+        expect(queued_requests).to include(past_request.id)
+        expect(queued_requests).not_to include(future_request.id)
       end
     end
   end

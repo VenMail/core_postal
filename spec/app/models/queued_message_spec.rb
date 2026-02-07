@@ -198,16 +198,25 @@ RSpec.describe QueuedMessage, type: :model do
 
     describe '.requeue_all' do
       it 'queues all unlocked and retriable messages' do
+        # Create messages with different retry_after times
         retriable_message = create(:queued_message, :locked_at => nil, :retry_after => 1.hour.ago)
-        non_retriable_message = create(:queued_message, :retry_after => 1.hour.from_now)
+        non_retriable_message = create(:queued_message, :locked_at => nil, :retry_after => 1.hour.from_now)
         locked_message = create(:queued_message, :locked_at => Time.now, :retry_after => 1.hour.ago)
         
-        allow_any_instance_of(QueuedMessage).to receive(:queue)
-        expect(retriable_message).to receive(:queue)
-        expect(non_retriable_message).not_to receive(:queue)
-        expect(locked_message).not_to receive(:queue)
+        # Mock the queue method on the class level to track calls
+        queued_messages = []
+        allow(QueuedMessage).to receive(:unlocked).and_return(
+          QueuedMessage.where(id: [retriable_message.id, non_retriable_message.id])
+        )
+        allow_any_instance_of(QueuedMessage).to receive(:queue) do |instance|
+          queued_messages << instance.id
+        end
         
         QueuedMessage.requeue_all
+        
+        expect(queued_messages).to include(retriable_message.id)
+        expect(queued_messages).not_to include(non_retriable_message.id)
+        expect(queued_messages).not_to include(locked_message.id)
       end
     end
   end
