@@ -3,6 +3,11 @@ require 'uri'
 
 module Postal
   class SpamChecker
+    # Maximum content sizes to prevent resource exhaustion
+    MAX_EMAIL_SIZE = 1_000_000  # 1MB
+    MAX_SUBJECT_SIZE = 10_000   # 10KB
+    MAX_BODY_SIZE = 500_000     # 500KB
+    
     TRUSTED_DOMAINS = [
     'googlemail.com',
     'gmail.com',
@@ -485,7 +490,6 @@ module Postal
 
     # Restricted domains that should not send priority/urgent emails
     RESTRICTED_DOMAINS = [
-      'venmail.io',
       'venia.cloud', 
       'bammby.com'
     ].freeze
@@ -826,8 +830,9 @@ module Postal
       end
       
       def extract_href_base_domain(href)
-        # Extracting base domain from href using regex
-        href.match(/^(?:https?:\/\/)?(?:[^@\/\n]+@)?(?:www\.)?([^:\/?\n]+)/im)[1] rescue nil
+        # Extracting base domain from href using regex with safe navigation
+        match = href.match(/^(?:https?:\/\/)?(?:[^@\/\n]+@)?(?:www\.)?([^:\/?\n]+)/im)
+        match&.[](1)
       end
       
       def check_for_mismatched_sender(sender_email, links)
@@ -1023,9 +1028,20 @@ module Postal
       end
       
       def extract_domain_from_email(email)
-        return nil unless email
-        # Extract domain from email address, handling various formats
-        email.match(/@([^>\s]+)/)&.captures&.first
+        return nil unless email.is_a?(String) && !email.empty?
+        
+        # Basic email format validation
+        return nil unless email.match?(/\A[^@\s]+@[^@\s]+\z/)
+        
+        # Extract domain and validate format
+        domain = email.match(/@([^>\s]+)/)&.captures&.first
+        return nil unless domain
+        
+        # Validate domain has proper format and TLD
+        return nil unless domain.match?(/\A[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\z/)
+        return nil unless domain.start_with?(/[a-zA-Z0-9]/)
+        
+        domain
       end
       
       def check_phishing_tracking_links(links)
@@ -1038,7 +1054,7 @@ module Postal
           next unless href.is_a?(String)
           next if href.start_with?('mailto:')
           
-          # Parse the URL
+          # Parse the URL with proper error handling
           begin
             uri = URI.parse(href.downcase)
             next unless uri.host
@@ -1111,6 +1127,15 @@ module Postal
       end
                    
       def classify_email(sender_email, parsed, headers = [], subject = '')
+        # Input validation and size limits
+        return 20 unless sender_email.is_a?(String)
+        return 20 unless subject.is_a?(String) && subject.length <= MAX_SUBJECT_SIZE
+        return 20 unless parsed.is_a?(String) && parsed.length <= MAX_BODY_SIZE
+        
+        # Check total email size
+        total_size = (sender_email.length + subject.length + parsed.length + headers.join.length)
+        return 20 if total_size > MAX_EMAIL_SIZE
+        
         links = extract_links(parsed)
         bad_links = check_for_spam_links(links)
         mismatched = check_for_mismatched_sender(sender_email, links)
@@ -1211,30 +1236,93 @@ module Postal
         # Apply rate limiting penalty first
         if header_frequency > 5
           score += 15
+          log "Rate limiting penalty applied: +15"
         end
         
         # Add all other scores
-        score += 1.5 * bad_links
+        if bad_links > 0
+          score += 1.5 * bad_links
+          log "Bad links penalty: +#{1.5 * bad_links}"
+        end
+        
         mismatchScore = (bad_links > 0 ? 0.5 : 0) * mismatched
-        score += (mismatchScore > 4 ? 4 : mismatchScore)
-        score += (contains_gibberish ? 1 : 0)
-        marketing_score = 0.25 * marketing_count  # Reduced from 0.5 to prevent false positives
-        marketing_score = [marketing_score, 3.0].min  # Cap at 3.0 points to prevent accumulation
-        score += marketing_score
-        score += 1 * spam_count
-        score += 1.5 * offensive_count
-        score += 2 * pornographic_count
-        score += 1.5 * finance_count
-        score += (finance_count > 0 ? 0.5 : 0) * finance_count1
+        if mismatchScore > 0
+          score += (mismatchScore > 4 ? 4 : mismatchScore)
+          log "Sender mismatch penalty: +#{[mismatchScore, 4].min}"
+        end
+        
+        if contains_gibberish
+          score += 1
+          log "Gibberish penalty: +1"
+        end
+        
+        if marketing_count > 0
+          marketing_score = 0.25 * marketing_count
+          marketing_score = [marketing_score, 3.0].min
+          score += marketing_score
+          log "Marketing keywords penalty: +#{marketing_score}"
+        end
+        
+        if spam_count > 0
+          score += 1 * spam_count
+          log "Spam phrases penalty: +#{spam_count}"
+        end
+        
+        if offensive_count > 0
+          score += 1.5 * offensive_count
+          log "Offensive content penalty: +#{1.5 * offensive_count}"
+        end
+        
+        if pornographic_count > 0
+          score += 2 * pornographic_count
+          log "Pornographic content penalty: +#{2 * pornographic_count}"
+        end
+        
+        if finance_count > 0
+          score += 1.5 * finance_count
+          log "Finance patterns penalty: +#{1.5 * finance_count}"
+        end
+        
+        if finance_count1 > 0
+          score += (finance_count > 0 ? 0.5 : 0) * finance_count1
+          log "Finance patterns1 penalty: +#{(finance_count > 0 ? 0.5 : 0) * finance_count1}"
+        end
         
         # Add new detection scores
-        score += from_mismatch_score
-        score += restricted_domain_score
-        score += 2 * confirmation_phrases_score
-        score += phishing_tracking_score
-        score += brand_domain_mismatch_score
-        score += random_sender_score
-        score += greeting_urgency_score
+        if from_mismatch_score > 0
+          score += from_mismatch_score
+          log "From name/email mismatch penalty: +#{from_mismatch_score}"
+        end
+        
+        if restricted_domain_score > 0
+          score += restricted_domain_score
+          log "Restricted domain penalty: +#{restricted_domain_score}"
+        end
+        
+        if confirmation_phrases_score > 0
+          score += 2 * confirmation_phrases_score
+          log "Confirmation phrases penalty: +#{2 * confirmation_phrases_score}"
+        end
+        
+        if phishing_tracking_score > 0
+          score += phishing_tracking_score
+          log "Phishing tracking penalty: +#{phishing_tracking_score}"
+        end
+        
+        if brand_domain_mismatch_score > 0
+          score += brand_domain_mismatch_score
+          log "Brand domain mismatch penalty: +#{brand_domain_mismatch_score}"
+        end
+        
+        if random_sender_score > 0
+          score += random_sender_score
+          log "Random sender penalty: +#{random_sender_score}"
+        end
+        
+        if greeting_urgency_score > 0
+          score += greeting_urgency_score
+          log "Greeting urgency penalty: +#{greeting_urgency_score}"
+        end
 
         # Apply system, business, and meeting email score reductions if detected
         if is_system_email
