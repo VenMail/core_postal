@@ -18,6 +18,7 @@ module Postal
     't.co',
     'linkedin.com',
     'instagram.com',
+    'venmail.io',
     'instagr.am',
     'youtube.com',
     'youtu.be',
@@ -63,18 +64,15 @@ module Postal
     'new arrival',
     'earn more',
     'best deal ever',
-    'amazing opportunity',
     'extra income',
     'buy now',
-    'get more',
     'buy more',
     'sell more',
     'work from home',
     'free shipping',
     'money-making',
     'huge discount',
-    'clearance sale',
-    'increase sales'
+    'clearance sale'
     ].freeze
 
     SPAM_PHRASES = [
@@ -454,9 +452,7 @@ module Postal
     inherit | 
     heritage | 
     transfer\s*of\s*funds | 
-    investment\s*funds | 
     agreement\s*with\s*me | 
-    investment\s*opportunity | 
     secure\s*transaction | 
     next\s*of\s*kin 
     )\b/ix.freeze
@@ -494,6 +490,69 @@ module Postal
       'bammby.com'
     ].freeze
 
+    # Legitimate system and security phrases that should not be penalized
+    LEGITIMATE_SYSTEM_PHRASES = [
+      'password reset',
+      'reset password',
+      'account verification',
+      'password change',
+      'security notification',
+      'login notification',
+      'two-factor authentication',
+      '2fa',
+      'verification code',
+      'security code',
+      'no further action required',
+      'will expire in',
+      'if you did not request',
+      'please ignore',
+      'regards',
+      'notification',
+      'confirm your email',
+      'email verification',
+      'verify your email'
+    ].freeze
+
+    # Legitimate business and onboarding phrases that should not be penalized
+    LEGITIMATE_BUSINESS_PHRASES = [
+      'welcome to',
+      'thrilled to have you',
+      'on board',
+      'dedicated to',
+      'business communications',
+      'customer support',
+      'get started',
+      'best regards',
+      'ceo',
+      'thank you for choosing',
+      'grow your business',
+      'business communication',
+      'business operations',
+      'dedicated support',
+      'easy account setup',
+      'company staff'
+    ].freeze
+
+    # Legitimate meeting and collaboration phrases that should not be penalized
+    LEGITIMATE_MEETING_PHRASES = [
+      'meeting access granted',
+      'access granted',
+      'instant meeting',
+      'join meeting',
+      'meeting invitation',
+      'meeting scheduled',
+      'meeting reminder',
+      'meeting confirmed',
+      'meeting details',
+      'virtual meeting',
+      'online meeting',
+      'meeting link',
+      'join now',
+      'meeting host',
+      'meeting duration',
+      'meeting location'
+    ].freeze
+
     # Suspicious confirmation phrases
     SUSPICIOUS_CONFIRMATION_PHRASES = [
       'shipment confirmation',
@@ -501,7 +560,6 @@ module Postal
       'money received',
       'wallet updated',
       'health check',
-      'investment opportunity',
       'payment received',
       'account verification',
       'address update required',
@@ -728,6 +786,12 @@ module Postal
         trusted_domains_regex = /^(https?:\/\/)?(?:[^\/]+\.)?(#{trusted_domains_pattern})(\/|$)/i
 
         spam_file_extensions = /\.(php|cgi|html)\z/i
+        
+        # Add meeting platform patterns to reduce false positives
+        meeting_platform_patterns = [
+          /meet|meeting|zoom|teams|webex|gotomeeting|join\.me|hangouts/i,
+          /venmail\.io\/meet/i
+        ]
 
         spam_links_count = 0
         links.each do |href, labels|
@@ -735,6 +799,13 @@ module Postal
           next if href.nil? || href.empty?
           next unless href.is_a?(String)
           next if href.start_with?('mailto:')
+          
+          # Skip meeting platform URLs
+          is_meeting_link = meeting_platform_patterns.any? { |pattern| href.match?(pattern) }
+          if is_meeting_link
+            log "Skipping meeting platform URL: #{href}"
+            next
+          end
 
           if labels.uniq.size > 1
             if href.match?(spam_file_extensions)
@@ -920,8 +991,11 @@ module Postal
         0
       end
       
-      def check_suspicious_confirmation_phrases(subject, body)
+      def check_suspicious_confirmation_phrases(subject, body, sender_email = nil)
         text = (subject.to_s + ' ' + body.to_s).downcase
+        
+        # Skip confirmation phrase checks for legitimate senders
+        return 0 if sender_email && legitimate_sender?(sender_email, text)
         
         count = SUSPICIOUS_CONFIRMATION_PHRASES.sum do |phrase|
           text.scan(/#{Regexp.escape(phrase)}/i).size
@@ -929,6 +1003,23 @@ module Postal
         
         log "#{count} suspicious confirmation phrases found" if count > 0
         count
+      end
+      
+      def legitimate_sender?(sender_email, body_text = nil)
+        return false unless sender_email
+        
+        domain = extract_domain_from_email(sender_email)
+        return false unless domain
+        
+        # Check if sender domain is trusted
+        return false unless TRUSTED_DOMAINS.any? { |trusted| domain.end_with?(trusted) }
+        
+        # For venmail.io, require 'venmail' to be present in email content
+        if domain.include?('venmail.io')
+          return false unless body_text&.downcase&.include?('venmail')
+        end
+        
+        true
       end
       
       def extract_domain_from_email(email)
@@ -1044,7 +1135,7 @@ module Postal
         # New detection methods
         from_mismatch_score = check_from_name_email_mismatch(from_header)
         restricted_domain_score = check_restricted_domain_priority(headers, from_domain)
-        confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower)
+        confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower, sender_email)
         phishing_tracking_score = check_phishing_tracking_links(links)
         brand_domain_mismatch_score = check_brand_domain_mismatch(subject, body_lower, from_domain)
         random_sender_score = check_random_sender_address(sender_email)
@@ -1061,13 +1152,13 @@ module Postal
         gibberish_pattern = /(?<![aeiouy])[aeiouy]{3,}(?![aeiouy])|(?<![bcdfghjklmnpqrstvwxyz])[bcdfghjklmnpqrstvwxyz]{3,}(?![bcdfghjklmnpqrstvwxyz])/
         contains_gibberish = body_lower.match?(gibberish_pattern)
 
-        marketing_count = count_keywords(MARKETING_KEYWORDS, body_lower)
-        spam_count = count_keywords(SPAM_PHRASES, body_lower)
-        offensive_count = count_keywords(OFFENSIVE_PHRASES, body_lower)
-        pornographic_count = count_keywords(PORNOGRAPHIC_PHRASES, body_lower)
+        marketing_count = count_keywords(MARKETING_KEYWORDS, body_lower, sender_email)
+        spam_count = count_keywords(SPAM_PHRASES, body_lower, sender_email)
+        offensive_count = count_keywords(OFFENSIVE_PHRASES, body_lower, sender_email)
+        pornographic_count = count_keywords(PORNOGRAPHIC_PHRASES, body_lower, sender_email)
 
         finance_matches = body_lower.scan(FINANCE_REGEX).uniq
-        finance_count = finance_matches.size
+        finance_count = count_finance_patterns(body_lower, sender_email)
 
         finance_matches1 = body_lower.scan(FINANCE_REGEX1).uniq
         finance_count1 = finance_matches1.size
@@ -1085,6 +1176,37 @@ module Postal
         log "#{greeting_urgency_score} email greeting urgency score"
 
         score = 0
+        
+        # Check if this is a legitimate system/security email and apply score reduction
+        system_phrases_count = LEGITIMATE_SYSTEM_PHRASES.sum do |phrase|
+          body_lower.scan(/#{Regexp.escape(phrase)}/i).size
+        end
+        
+        # Check if this is a legitimate business email and apply score reduction
+        business_phrases_count = LEGITIMATE_BUSINESS_PHRASES.sum do |phrase|
+          body_lower.scan(/#{Regexp.escape(phrase)}/i).size
+        end
+        
+        # Check if this is a legitimate meeting email and apply score reduction
+        meeting_phrases_count = LEGITIMATE_MEETING_PHRASES.sum do |phrase|
+          body_lower.scan(/#{Regexp.escape(phrase)}/i).size
+        end
+        
+        is_system_email = system_phrases_count >= 2  # At least 2 system phrases
+        is_business_email = business_phrases_count >= 3  # At least 3 business phrases
+        is_meeting_email = meeting_phrases_count >= 2  # At least 2 meeting phrases
+        
+        if is_system_email
+          log "Legitimate system email detected (#{system_phrases_count} system phrases), applying score reduction"
+        end
+        
+        if is_business_email
+          log "Legitimate business email detected (#{business_phrases_count} business phrases), applying score reduction"
+        end
+        
+        if is_meeting_email
+          log "Legitimate meeting email detected (#{meeting_phrases_count} meeting phrases), applying score reduction"
+        end
         
         # Apply rate limiting penalty first
         if header_frequency > 5
@@ -1113,6 +1235,22 @@ module Postal
         score += brand_domain_mismatch_score
         score += random_sender_score
         score += greeting_urgency_score
+
+        # Apply system, business, and meeting email score reductions if detected
+        if is_system_email
+          score *= 0.2  # Reduce score by 80% for legitimate system emails
+          log "Applied system email score reduction: #{(score * 5).round(2)} -> #{score.round(2)}"
+        end
+        
+        if is_business_email
+          score *= 0.4  # Reduce score by 60% for legitimate business emails
+          log "Applied business email score reduction: #{(score * 2.5).round(2)} -> #{score.round(2)}"
+        end
+        
+        if is_meeting_email
+          score *= 0.3  # Reduce score by 70% for legitimate meeting emails
+          log "Applied meeting email score reduction: #{(score * 3.33).round(2)} -> #{score.round(2)}"
+        end
 
         #use wordiness to determine newsletter
         if body_lower.length > 1024 && body_lower.include?('unsubscribe')
@@ -1143,10 +1281,20 @@ module Postal
         Nokogiri::HTML(content).text
       end
 
-      def count_keywords(keywords, body)
+      def count_keywords(keywords, text, sender_email = nil)
+        # Skip keyword counting for legitimate senders
+        return 0 if sender_email && legitimate_sender?(sender_email, text)
+        
         keywords.sum do |keyword|
-          body.scan(/#{Regexp.escape(keyword)}/i).uniq.size
+          text.scan(/#{Regexp.escape(keyword)}/i).size
         end
+      end
+      
+      def count_finance_patterns(text, sender_email = nil)
+        # Skip finance pattern detection for legitimate senders
+        return 0 if sender_email && legitimate_sender?(sender_email, text)
+        
+        text.scan(FINANCE_REGEX).uniq.size
       end      
     end
   end
