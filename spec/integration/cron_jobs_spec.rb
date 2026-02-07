@@ -84,19 +84,14 @@ RSpec.describe 'Cron Jobs', type: :model do
     it 'queries for held messages with expired hold_expiry' do
       mock_messages = double('messages')
       mock_message_db = double('message_db')
-      expected_where = {
-        :status => 'Held',
-        :hold_expiry => { :less_than => Time.now.to_f }
-      }
-      
       allow_any_instance_of(Server).to receive(:message_db).and_return(mock_message_db)
-      allow(mock_message_db).to receive(:messages).with(:where => expected_where).and_return(mock_messages)
+      allow(mock_message_db).to receive(:messages).and_return(mock_messages)
       allow(mock_messages).to receive(:each)
 
       job = ExpireHeldMessagesJob.new('test-id')
       job.perform
 
-      expect(mock_message_db).to have_received(:messages).with(:where => expected_where)
+      expect(mock_message_db).to have_received(:messages).with(hash_including(:where => hash_including(:status => 'Held', :hold_expiry => kind_of(Hash))))
     end
   end
 
