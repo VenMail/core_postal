@@ -123,15 +123,30 @@ class UnqueueMessageJob < Postal::Job
                 log "#{log_prefix} Inspecting message"
                 queued_message.message.inspect_message
                 if queued_message.message.inspected == 1
-                  is_spam = queued_message.message.spam_score > queued_message.server.spam_threshold
-                  queued_message.message.update(:spam => 1) if is_spam
+                  # Only mark as spam if it exceeds the failure threshold, not regular threshold
+                  # This prevents legitimate emails from being hard-failed due to low threshold
+                  failure_threshold = queued_message.server.spam_failure_threshold || 20.0
+                  regular_threshold = queued_message.server.spam_threshold
+                  spam_score = queued_message.message.spam_score
+                  
+                  log "#{log_prefix} Spam score evaluation: score=#{spam_score}, regular_threshold=#{regular_threshold}, failure_threshold=#{failure_threshold}"
+                  
+                  is_spam = spam_score > failure_threshold
+                  if is_spam
+                    log "#{log_prefix} Marking message as spam (score #{spam_score} > failure threshold #{failure_threshold})"
+                    queued_message.message.update(:spam => 1)
+                  else
+                    log "#{log_prefix} Not marking as spam (score #{spam_score} <= failure threshold #{failure_threshold})"
+                  end
+                  
                   queued_message.message.append_headers(
                     "X-Venmail-Spam: #{queued_message.message.spam == 1 ? 'yes' : 'no'}",
                     "X-Venmail-Spam-Threshold: #{queued_message.server.spam_threshold}",
                     "X-Venmail-Spam-Score: #{queued_message.message.spam_score}",
                     "X-Venmail-Threat: #{queued_message.message.threat == 1 ? 'yes' : 'no'}"
                   )
-                  log "#{log_prefix} Message inspected successfully. Headers added."
+                  queued_message.message.database.statistics.increment_all(Time.now, 'spam')
+                  log "#{log_prefix} Message inspected successfully"
                 end
               end
 
