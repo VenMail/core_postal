@@ -2,6 +2,9 @@ module Postal
   module MessageInspectors
     # Wrapper inspector to run the local SpamChecker for every message
     class SpamChecker < MessageInspector
+      def initialize
+        # SpamChecker doesn't need any config
+      end
       def inspect_message(inspection)
         message = inspection.message
         raw_message = message.raw_message
