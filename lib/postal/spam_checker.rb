@@ -1011,19 +1011,31 @@ module Postal
       end
       
       def legitimate_sender?(sender_email, body_text = nil)
+        log "=== LEGITIMATE SENDER CHECK ==="
+        log "Checking sender: #{sender_email}"
+        
         return false unless sender_email
         
         domain = extract_domain_from_email(sender_email)
+        log "Extracted domain: #{domain}"
         return false unless domain
         
         # Check if sender domain is trusted
-        return false unless TRUSTED_DOMAINS.any? { |trusted| domain.end_with?(trusted) }
+        domain_trusted = TRUSTED_DOMAINS.any? { |trusted| domain.end_with?(trusted) }
+        log "Domain trusted: #{domain_trusted}"
+        log "Trusted domains: #{TRUSTED_DOMAINS.inspect}"
+        
+        return false unless domain_trusted
         
         # For venmail.io, require 'venmail' to be present in email content
         if domain.include?('venmail.io')
-          return false unless body_text&.downcase&.include?('venmail')
+          brand_present = body_text&.downcase&.include?('venmail')
+          log "VenMail domain detected, brand present: #{brand_present}"
+          log "Body text (first 200 chars): #{body_text&.downcase&.truncate(200)}"
+          return false unless brand_present
         end
         
+        log "Sender confirmed legitimate: #{sender_email}"
         true
       end
       
@@ -1136,6 +1148,12 @@ module Postal
         total_size = (sender_email.length + subject.length + parsed.length + headers.join.length)
         return 20 if total_size > MAX_EMAIL_SIZE
         
+        log "=== SPAM CHECK ANALYSIS START ==="
+        log "Sender: #{sender_email}"
+        log "Subject: #{subject}"
+        log "Body length: #{parsed.length}"
+        log "Headers count: #{headers.size}"
+        
         links = extract_links(parsed)
         bad_links = check_for_spam_links(links)
         mismatched = check_for_mismatched_sender(sender_email, links)
@@ -1188,17 +1206,28 @@ module Postal
         finance_matches1 = body_lower.scan(FINANCE_REGEX1).uniq
         finance_count1 = finance_matches1.size
         
-        log "#{finance_count} finance count"
-        log "#{marketing_count} marketing count"
-        log "#{offensive_count} offsensive count"
-        log "#{finance_count1} finance1 count"
-        log "#{from_mismatch_score} from name/email mismatch score"
-        log "#{restricted_domain_score} restricted domain score"
-        log "#{confirmation_phrases_score} confirmation phrases score"
-        log "#{phishing_tracking_score} phishing tracking links score"
-        log "#{brand_domain_mismatch_score} brand/domain mismatch score"
-        log "#{random_sender_score} random sender address score"
-        log "#{greeting_urgency_score} email greeting urgency score"
+        log "=== DETAILED SCORING BREAKDOWN ==="
+        log "finance_count: #{finance_count}"
+        log "marketing_count: #{marketing_count}"
+        log "offensive_count: #{offensive_count}"
+        log "finance_count1: #{finance_count1}"
+        log "from_mismatch_score: #{from_mismatch_score}"
+        log "restricted_domain_score: #{restricted_domain_score}"
+        log "confirmation_phrases_score: #{confirmation_phrases_score}"
+        log "phishing_tracking_score: #{phishing_tracking_score}"
+        log "brand_domain_mismatch_score: #{brand_domain_mismatch_score}"
+        log "random_sender_score: #{random_sender_score}"
+        log "greeting_urgency_score: #{greeting_urgency_score}"
+        log "bad_links: #{bad_links}"
+        log "mismatched: #{mismatched}"
+        log "contains_gibberish: #{contains_gibberish}"
+        log "header_frequency: #{header_frequency}"
+        
+        # Check sender legitimacy
+        is_legitimate = legitimate_sender?(sender_email, body_lower)
+        log "Sender legitimacy check: #{is_legitimate}"
+        log "Sender domain: #{from_domain}"
+        log "Body contains 'venmail': #{body_lower.include?('venmail')}"
 
         score = 0
         
@@ -1358,9 +1387,16 @@ module Postal
           end
       
           score /= reduction_factor
+          log "Newsletter reduction factor: #{reduction_factor}, score after: #{score}"
         end
         
-        [[score, 1].max, 20].min
+        final_score = [[score, 1].max, 20].min
+        log "=== FINAL SCORE CALCULATION ==="
+        log "Base score: #{score}"
+        log "Final score (clamped): #{final_score}"
+        log "=== SPAM CHECK ANALYSIS END ==="
+        
+        final_score
       end
 
       private
