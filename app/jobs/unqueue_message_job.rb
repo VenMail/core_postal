@@ -148,6 +148,32 @@ class UnqueueMessageJob < Postal::Job
                   queued_message.message.database.statistics.increment_all(Time.now, 'spam')
                   log "#{log_prefix} Message inspected successfully"
                 end
+              elsif queued_message.message.inspected == 1 && queued_message.message.spam == 1
+                # Re-inspect messages that were previously flagged as spam
+                # This gives them a chance with the new threshold logic
+                log "#{log_prefix} Message previously flagged as spam, re-inspecting with new logic"
+                queued_message.message.inspect_message
+                if queued_message.message.inspected == 1
+                  failure_threshold = queued_message.server.spam_failure_threshold || 20.0
+                  spam_score = queued_message.message.spam_score
+                  
+                  log "#{log_prefix} Re-inspection spam evaluation: score=#{spam_score}, failure_threshold=#{failure_threshold}"
+                  
+                  if spam_score >= failure_threshold
+                    log "#{log_prefix} Message still exceeds threshold (#{spam_score} >= #{failure_threshold}), keeping spam flag"
+                  else
+                    log "#{log_prefix} Message no longer exceeds threshold (#{spam_score} < #{failure_threshold}), clearing spam flag"
+                    queued_message.message.update(:spam => 0)
+                    # Update headers to reflect new status
+                    queued_message.message.append_headers(
+                      "X-Venmail-Spam: no",
+                      "X-Venmail-Spam-Threshold: #{queued_message.server.spam_threshold}",
+                      "X-Venmail-Spam-Score: #{queued_message.message.spam_score}",
+                      "X-Venmail-Threat: #{queued_message.message.threat == 1 ? 'yes' : 'no'}"
+                    )
+                  end
+                  log "#{log_prefix} Re-inspection completed successfully"
+                end
               end
 
               #
@@ -368,19 +394,37 @@ class UnqueueMessageJob < Postal::Job
                 log "#{log_prefix} Inspecting message"
                 queued_message.message.inspect_message
                 if queued_message.message.inspected == 1
-                  # Use server's outbound threshold if configured, otherwise use 15 as default
-                  outbound_threshold = queued_message.server.outbound_spam_threshold || 15
+                  # Use server's failure threshold for consistency with incoming messages
+                  # This prevents legitimate outgoing emails from being hard-failed
+                  outbound_threshold = queued_message.server.spam_failure_threshold || 20.0
                   if queued_message.message.spam_score >= outbound_threshold
                     queued_message.message.update(:spam => 1)
                   end
+                  log "#{log_prefix} Outgoing message spam evaluation: score=#{queued_message.message.spam_score}, threshold=#{outbound_threshold}"
                   log "#{log_prefix} Message inspected successfully"
+                end
+              elsif queued_message.message.inspected == 1 && queued_message.message.spam == 1
+                # Re-inspect messages that were previously flagged as spam
+                # This gives them a chance with the new threshold logic
+                log "#{log_prefix} Message previously flagged as spam, re-inspecting with new logic"
+                queued_message.message.inspect_message
+                if queued_message.message.inspected == 1
+                  # Use server's failure threshold for consistency with incoming messages
+                  outbound_threshold = queued_message.server.spam_failure_threshold || 20.0
+                  if queued_message.message.spam_score >= outbound_threshold
+                    log "#{log_prefix} Message still exceeds threshold (#{queued_message.message.spam_score} >= #{outbound_threshold}), keeping spam flag"
+                  else
+                    log "#{log_prefix} Message no longer exceeds threshold (#{queued_message.message.spam_score} < #{outbound_threshold}), clearing spam flag"
+                    queued_message.message.update(:spam => 0)
+                  end
+                  log "#{log_prefix} Re-inspection completed successfully"
                 end
               end
 
               if queued_message.message.spam == 1
                 queued_message.message.database.statistics.increment_all(Time.now, 'spam')
                 # Use the actual threshold that was applied for the error message
-                outbound_threshold = queued_message.server.outbound_spam_threshold || 15
+                outbound_threshold = queued_message.server.spam_failure_threshold || 20.0
                 queued_message.message.create_delivery("HardFail", :details => "Message is likely spam. Threshold is #{outbound_threshold} and the message scored #{queued_message.message.spam_score}.")
                 queued_message.destroy
                 log "#{log_prefix} Message is spam (#{queued_message.message.spam_score}). Hard failing."
