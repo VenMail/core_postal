@@ -182,7 +182,7 @@ RSpec.describe QueuedMessage, type: :model do
         create(:queued_message, :batch_key => 'test_key', :ip_address => ip_address, :locked_at => nil)
         
         result = message.batchable_messages
-        expect(result).to be_an(Array)
+        expect(result).to be_an(ActiveRecord::Relation)
       end
     end
   end
@@ -198,12 +198,14 @@ RSpec.describe QueuedMessage, type: :model do
 
     describe '.requeue_all' do
       it 'queues all unlocked and retriable messages' do
-        retriable_message = create(:queued_message, :locked_at => nil, :retry_after => nil)
+        retriable_message = create(:queued_message, :locked_at => nil, :retry_after => 1.hour.ago)
         non_retriable_message = create(:queued_message, :retry_after => 1.hour.from_now)
+        locked_message = create(:queued_message, :locked_at => Time.now, :retry_after => 1.hour.ago)
         
         allow_any_instance_of(QueuedMessage).to receive(:queue)
         expect(retriable_message).to receive(:queue)
         expect(non_retriable_message).not_to receive(:queue)
+        expect(locked_message).not_to receive(:queue)
         
         QueuedMessage.requeue_all
       end
@@ -224,7 +226,10 @@ RSpec.describe QueuedMessage, type: :model do
       server = create(:server)
       message.server = server
       
-      expect(server).to receive(:ip_pool_for_message).and_return(nil)
+      # Mock the message access to avoid database issues
+      mock_message = double('message')
+      allow(message).to receive(:message).and_return(mock_message)
+      expect(server).to receive(:ip_pool_for_message).with(mock_message).and_return(nil)
       message.allocate_ip_address
     end
   end

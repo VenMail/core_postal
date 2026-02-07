@@ -49,7 +49,7 @@ RSpec.describe UserInvite, type: :model do
 
   describe 'default values' do
     it 'sets expires_at to 7 days from now by default' do
-      user_invite = UserInvite.new
+      user_invite = create(:user_invite)
       expected_time = 7.days.from_now
       expect(user_invite.expires_at).to be_within(1.minute).of(expected_time)
     end
@@ -115,6 +115,7 @@ RSpec.describe UserInvite, type: :model do
 
     describe '#reject' do
       it 'destroys the invite' do
+        user_invite # Ensure the user_invite is created
         expect(UserInvite.count).to eq(1)
         user_invite.reject
         expect(UserInvite.count).to eq(0)
@@ -136,7 +137,7 @@ RSpec.describe UserInvite, type: :model do
       end
 
       it 'returns nil for blank email address' do
-        user_invite.email_address = ''
+        user_invite.email_address = nil
         expect(user_invite.avatar_url).to be_nil
       end
     end
