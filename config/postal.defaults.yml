@@ -22,6 +22,7 @@ general:
   default_spam_threshold: 5.0
   default_spam_failure_threshold: 20.0
   address_spam_failure_threshold: 10.0
+  spam_check_enabled: true
   default_domain_daily_send_limit: 1000
   reputation_block_threshold_percent: 8.0
   reputation_credential_bounce_threshold_percent: 8.0

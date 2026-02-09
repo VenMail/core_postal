@@ -245,24 +245,30 @@
 
   def retry
     if @message.raw_message?
-      # Reset spam flags when manually retrying to give message another chance
-      if @message.spam == 1 || @message.spam_score > 0
-        log "Resetting spam flags for message #{@message.id} during manual retry"
-        @message.update_columns(:spam => 0, :inspected => 0)
-        @message.reload  # Ensure fresh data
-      end
-      
-      if (queued = @message.queued_message)
-        queued.allocate_ip_address(exclude_current: true)
-        queued.update_column(:ip_address_id, queued.ip_address&.id)
-        queued.queue!
-        flash[:notice] = "This message will be retried shortly with a new IP address."
-      elsif @message.held?
-        @message.add_to_message_queue(:manual => true)
-        flash[:notice] = "This message has been released. Delivery will be attempted shortly."
-      else
-        @message.add_to_message_queue(:manual => true)
-        flash[:notice] = "This message will be redelivered shortly."
+      begin
+        # Reset spam flags when manually retrying to give message another chance
+        if @message.spam == 1 || @message.spam_score > 0
+          Rails.logger.info "Resetting spam flags for message #{@message.id} during manual retry"
+          @message.update_columns(:spam => 0, :inspected => 0)
+          @message.reload  # Ensure fresh data
+        end
+        
+        if (queued = @message.queued_message)
+          queued.allocate_ip_address(exclude_current: true)
+          queued.update_column(:ip_address_id, queued.ip_address&.id)
+          queued.queue!
+          flash[:notice] = "This message will be retried shortly with a new IP address."
+        elsif @message.held?
+          @message.add_to_message_queue(:manual => true)
+          flash[:notice] = "This message has been released. Delivery will be attempted shortly."
+        else
+          @message.add_to_message_queue(:manual => true)
+          flash[:notice] = "This message will be redelivered shortly."
+        end
+      rescue => e
+        Rails.logger.error "Failed to retry message #{@message.id}: #{e.message}"
+        Rails.logger.error e.backtrace.join("\n")
+        flash[:alert] = "Failed to retry message: #{e.message}. Please try again."
       end
     else
       flash[:alert] = "This message is no longer available."

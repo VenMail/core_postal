@@ -125,18 +125,22 @@ class UnqueueMessageJob < Postal::Job
                 if queued_message.message.inspected == 1
                   # Only mark as spam if it exceeds the failure threshold, not regular threshold
                   # This prevents legitimate emails from being hard-failed due to low threshold
-                  failure_threshold = queued_message.server.spam_failure_threshold || 20.0
-                  regular_threshold = queued_message.server.spam_threshold
-                  spam_score = queued_message.message.spam_score
-                  
-                  log "#{log_prefix} Spam score evaluation: score=#{spam_score}, regular_threshold=#{regular_threshold}, failure_threshold=#{failure_threshold}"
-                  
-                  is_spam = spam_score > failure_threshold
-                  if is_spam
-                    log "#{log_prefix} Marking message as spam (score #{spam_score} > failure threshold #{failure_threshold})"
-                    queued_message.message.update(:spam => 1)
+                  if Postal.config.general.spam_check_enabled != false
+                    failure_threshold = queued_message.server.spam_failure_threshold || 20.0
+                    regular_threshold = queued_message.server.spam_threshold
+                    spam_score = queued_message.message.spam_score
+                    
+                    log "#{log_prefix} Spam score evaluation: score=#{spam_score}, regular_threshold=#{regular_threshold}, failure_threshold=#{failure_threshold}"
+                    
+                    is_spam = spam_score > failure_threshold
+                    if is_spam
+                      log "#{log_prefix} Marking message as spam (score #{spam_score} > failure threshold #{failure_threshold})"
+                      queued_message.message.update(:spam => 1)
+                    else
+                      log "#{log_prefix} Not marking as spam (score #{spam_score} <= failure threshold #{failure_threshold})"
+                    end
                   else
-                    log "#{log_prefix} Not marking as spam (score #{spam_score} <= failure threshold #{failure_threshold})"
+                    log "#{log_prefix} Spam checking is disabled, skipping spam flag evaluation"
                   end
                   
                   queued_message.message.append_headers(
@@ -154,15 +158,27 @@ class UnqueueMessageJob < Postal::Job
                 log "#{log_prefix} Message previously flagged as spam, re-inspecting with new logic"
                 queued_message.message.inspect_message
                 if queued_message.message.inspected == 1
-                  failure_threshold = queued_message.server.spam_failure_threshold || 20.0
-                  spam_score = queued_message.message.spam_score
-                  
-                  log "#{log_prefix} Re-inspection spam evaluation: score=#{spam_score}, failure_threshold=#{failure_threshold}"
-                  
-                  if spam_score >= failure_threshold
-                    log "#{log_prefix} Message still exceeds threshold (#{spam_score} >= #{failure_threshold}), keeping spam flag"
+                  if Postal.config.general.spam_check_enabled != false
+                    failure_threshold = queued_message.server.spam_failure_threshold || 20.0
+                    spam_score = queued_message.message.spam_score
+                    
+                    log "#{log_prefix} Re-inspection spam evaluation: score=#{spam_score}, failure_threshold=#{failure_threshold}"
+                    
+                    if spam_score >= failure_threshold
+                      log "#{log_prefix} Message still exceeds threshold (#{spam_score} >= #{failure_threshold}), keeping spam flag"
+                    else
+                      log "#{log_prefix} Message no longer exceeds threshold (#{spam_score} < #{failure_threshold}), clearing spam flag"
+                      queued_message.message.update(:spam => 0)
+                      # Update headers to reflect new status
+                      queued_message.message.append_headers(
+                        "X-Venmail-Spam: no",
+                        "X-Venmail-Spam-Threshold: #{queued_message.server.spam_threshold}",
+                        "X-Venmail-Spam-Score: #{queued_message.message.spam_score}",
+                        "X-Venmail-Threat: #{queued_message.message.threat == 1 ? 'yes' : 'no'}"
+                      )
+                    end
                   else
-                    log "#{log_prefix} Message no longer exceeds threshold (#{spam_score} < #{failure_threshold}), clearing spam flag"
+                    log "#{log_prefix} Spam checking is disabled, clearing spam flag during re-inspection"
                     queued_message.message.update(:spam => 0)
                     # Update headers to reflect new status
                     queued_message.message.append_headers(
@@ -179,7 +195,7 @@ class UnqueueMessageJob < Postal::Job
               #
               # If this message has a SPAM score higher than is permitted
               #
-              if queued_message.message.spam_score >= queued_message.server.spam_failure_threshold
+              if Postal.config.general.spam_check_enabled != false && queued_message.message.spam_score >= queued_message.server.spam_failure_threshold
                 log "#{log_prefix} Message has a spam score higher than the server's maxmimum. Hard failing."
                 queued_message.message.create_delivery('HardFail', :details => "Message's spam score is higher than the failure threshold for this server. Threshold is currently #{queued_message.server.spam_failure_threshold}.")
                 queued_message.destroy
@@ -271,7 +287,7 @@ class UnqueueMessageJob < Postal::Job
                     when HTTPEndpoint
                       sender = cached_sender(Postal::HTTPSender, queued_message.message.endpoint)
                     when AddressEndpoint
-                      if queued_message.message.spam_score >= Postal.config.general.address_spam_failure_threshold
+                      if Postal.config.general.spam_check_enabled != false && queued_message.message.spam_score >= Postal.config.general.address_spam_failure_threshold
                         log "#{log_prefix} Message has a spam score higher than allowed for address endpoints. Hard failing."
                         queued_message.message.create_delivery('HardFail', details: "Message's spam score is higher than the failure threshold for this server. Threshold is currently #{Postal.config.general.address_spam_failure_threshold}.")
                         queued_message.destroy
@@ -396,11 +412,15 @@ class UnqueueMessageJob < Postal::Job
                 if queued_message.message.inspected == 1
                   # Use server's failure threshold for consistency with incoming messages
                   # This prevents legitimate outgoing emails from being hard-failed
-                  outbound_threshold = queued_message.server.spam_failure_threshold || 20.0
-                  if queued_message.message.spam_score >= outbound_threshold
-                    queued_message.message.update(:spam => 1)
+                  if Postal.config.general.spam_check_enabled != false
+                    outbound_threshold = queued_message.server.spam_failure_threshold || 20.0
+                    if queued_message.message.spam_score >= outbound_threshold
+                      queued_message.message.update(:spam => 1)
+                    end
+                    log "#{log_prefix} Outgoing message spam evaluation: score=#{queued_message.message.spam_score}, threshold=#{outbound_threshold}"
+                  else
+                    log "#{log_prefix} Spam checking is disabled, skipping outgoing message spam evaluation"
                   end
-                  log "#{log_prefix} Outgoing message spam evaluation: score=#{queued_message.message.spam_score}, threshold=#{outbound_threshold}"
                   log "#{log_prefix} Message inspected successfully"
                 end
               elsif queued_message.message.inspected == 1 && queued_message.message.spam == 1
@@ -421,7 +441,7 @@ class UnqueueMessageJob < Postal::Job
                 end
               end
 
-              if queued_message.message.spam == 1
+              if Postal.config.general.spam_check_enabled != false && queued_message.message.spam == 1
                 queued_message.message.database.statistics.increment_all(Time.now, 'spam')
                 # Use the actual threshold that was applied for the error message
                 outbound_threshold = queued_message.server.spam_failure_threshold || 20.0

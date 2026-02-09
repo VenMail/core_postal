@@ -1011,31 +1011,25 @@ module Postal
       end
       
       def legitimate_sender?(sender_email, body_text = nil)
-        log "=== LEGITIMATE SENDER CHECK ==="
-        log "Checking sender: #{sender_email}"
-        
         return false unless sender_email
         
         domain = extract_domain_from_email(sender_email)
-        log "Extracted domain: #{domain}"
         return false unless domain
         
         # Check if sender domain is trusted
         domain_trusted = TRUSTED_DOMAINS.any? { |trusted| domain.end_with?(trusted) }
-        log "Domain trusted: #{domain_trusted}"
-        log "Trusted domains: #{TRUSTED_DOMAINS.inspect}"
-        
         return false unless domain_trusted
         
         # For venmail.io, require 'venmail' to be present in email content
         if domain.include?('venmail.io')
           brand_present = body_text&.downcase&.include?('venmail')
-          log "VenMail domain detected, brand present: #{brand_present}"
-          log "Body text (first 200 chars): #{body_text&.downcase&.truncate(200)}"
+          if Rails.env.development? || ENV['SPAM_DEBUG']
+            log "VenMail domain detected, brand present: #{brand_present}"
+            log "Body text (first 200 chars): #{body_text&.downcase&.truncate(200)}" unless brand_present
+          end
           return false unless brand_present
         end
         
-        log "Sender confirmed legitimate: #{sender_email}"
         true
       end
       
@@ -1148,11 +1142,14 @@ module Postal
         total_size = (sender_email.length + subject.length + parsed.length + headers.join.length)
         return 20 if total_size > MAX_EMAIL_SIZE
         
-        log "=== SPAM CHECK ANALYSIS START ==="
-        log "Sender: #{sender_email}"
-        log "Subject: #{subject}"
-        log "Body length: #{parsed.length}"
-        log "Headers count: #{headers.size}"
+        # Only log debug info in development or when explicitly needed
+        if Rails.env.development? || ENV['SPAM_DEBUG']
+          log "=== SPAM CHECK ANALYSIS START ==="
+          log "Sender: #{sender_email}"
+          log "Subject: #{subject}"
+          log "Body length: #{parsed.length}"
+          log "Headers count: #{headers.size}"
+        end
         
         links = extract_links(parsed)
         bad_links = check_for_spam_links(links)
