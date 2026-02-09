@@ -430,11 +430,16 @@ class UnqueueMessageJob < Postal::Job
                 queued_message.message.inspect_message
                 if queued_message.message.inspected == 1
                   # Use server's failure threshold for consistency with incoming messages
-                  outbound_threshold = queued_message.server.spam_failure_threshold || 20.0
-                  if queued_message.message.spam_score >= outbound_threshold
-                    log "#{log_prefix} Message still exceeds threshold (#{queued_message.message.spam_score} >= #{outbound_threshold}), keeping spam flag"
+                  if Postal.config.general.spam_check_enabled != false
+                    outbound_threshold = queued_message.server.spam_failure_threshold || 20.0
+                    if queued_message.message.spam_score >= outbound_threshold
+                      log "#{log_prefix} Message still exceeds threshold (#{queued_message.message.spam_score} >= #{outbound_threshold}), keeping spam flag"
+                    else
+                      log "#{log_prefix} Message no longer exceeds threshold (#{queued_message.message.spam_score} < #{outbound_threshold}), clearing spam flag"
+                      queued_message.message.update(:spam => 0)
+                    end
                   else
-                    log "#{log_prefix} Message no longer exceeds threshold (#{queued_message.message.spam_score} < #{outbound_threshold}), clearing spam flag"
+                    log "#{log_prefix} Spam checking is disabled, clearing spam flag during outgoing re-inspection"
                     queued_message.message.update(:spam => 0)
                   end
                   log "#{log_prefix} Re-inspection completed successfully"
