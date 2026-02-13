@@ -324,11 +324,15 @@
     end
 
     # Add to global suppression list
-    if GlobalSuppression.ban_ip(ip, reason: "Manual IP ban from message view by #{current_user.email}")
-      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP #{ip} added to global suppression list."
-    else
-      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "Failed to ban IP #{ip}."
-    end
+    # Temporarily disabled due to missing global_suppressions table
+    # if GlobalSuppression.ban_ip(ip, reason: "Manual IP ban from message view by #{current_user.email}")
+    #   redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP #{ip} added to global suppression list."
+    # else
+    #   redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "Failed to ban IP #{ip}."
+    # end
+    
+    # Temporary fallback - just show a message
+    redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP banning temporarily disabled. Please contact administrator."
   end
 
   def remove_from_queue
