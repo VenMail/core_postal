@@ -727,9 +727,12 @@ module Postal
           end
         end
 
-        authenticated_domain = nil
+        authenticated_domain = @domain
+        authenticated_server = @domain&.owner
+
         if @credential
-          authenticated_domain = @credential.server.find_authenticated_domain_from_headers(@headers)
+          authenticated_server = @credential.server
+          authenticated_domain = authenticated_server.find_authenticated_domain_from_headers(@headers)
           
           # If no authenticated domain but block_outgoing_without_verified_route is enabled,
           # extract domain from From header for later validation in UnqueueMessageJob
@@ -756,6 +759,13 @@ module Postal
             @state = :welcomed
             return '530 From/Sender name is not valid'
           end
+        end
+
+        has_outgoing_recipients = @recipients.any? { |recipient| recipient[0] == :credential }
+        if has_outgoing_recipients && authenticated_server && authenticated_server.block_outgoing_without_verified_route? && !authenticated_server.has_verified_route_for?(authenticated_domain)
+          transaction_reset
+          @state = :welcomed
+          return '550 Outgoing blocked: domain has no verified incoming route on this server'
         end
 
         @recipients.each do |recipient|

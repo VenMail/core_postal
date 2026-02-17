@@ -323,16 +323,22 @@
       return
     end
 
+    actor_email = current_user&.email_address.presence || current_user&.email_tag || 'unknown-user'
+
     # Add to global suppression list
-    # Temporarily disabled due to missing global_suppressions table
-    # if GlobalSuppression.ban_ip(ip, reason: "Manual IP ban from message view by #{current_user.email}")
-    #   redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP #{ip} added to global suppression list."
-    # else
-    #   redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "Failed to ban IP #{ip}."
-    # end
-    
-    # Temporary fallback - just show a message
-    redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP banning temporarily disabled. Please contact administrator."
+    unless GlobalSuppression.table_exists?
+      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "IP banning is unavailable because global suppressions are not configured."
+      return
+    end
+
+    if GlobalSuppression.ban_ip(ip, reason: "Manual IP ban from message view by #{actor_email}")
+      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP #{ip} added to global suppression list."
+    else
+      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "Failed to ban IP #{ip}."
+    end
+  rescue ActiveRecord::ActiveRecordError => e
+    Rails.logger.error("Failed to ban IP #{ip}: #{e.class} - #{e.message}")
+    redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "Failed to ban IP #{ip}."
   end
 
   def remove_from_queue
