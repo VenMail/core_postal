@@ -15,6 +15,7 @@ class ReputationMonitorJob < Postal::Job
   MAX_MEMORY_GROUPS = 5000
   CREDENTIAL_BATCH_SIZE = 50
   MAX_MESSAGE_ITERATIONS = 1000  # Prevent infinite loops
+  MAX_CREDENTIALS_PER_RUN = 100  # Keep each job bounded in time
   
   # Content processing limits
   SUBJECT_MAX_LENGTH = 100
@@ -35,15 +36,18 @@ class ReputationMonitorJob < Postal::Job
   
   def perform
     Rails.logger.info "ReputationMonitorJob: Starting optimized analysis"
-    
+
+    processed_credentials = 0
     Credential.where(hold: false).find_each(batch_size: CREDENTIAL_BATCH_SIZE) do |credential|
       monitor_credential_optimized(credential)
+      processed_credentials += 1
+      break if processed_credentials >= MAX_CREDENTIALS_PER_RUN
     end
     
     # Process credential resets
     reset_eligible_credentials
     
-    Rails.logger.info "ReputationMonitorJob: Completed optimized analysis"
+    Rails.logger.info "ReputationMonitorJob: Completed optimized analysis (processed #{processed_credentials} credentials)"
   rescue => e
     Rails.logger.error "ReputationMonitorJob: Critical failure: #{e.message}"
     raise

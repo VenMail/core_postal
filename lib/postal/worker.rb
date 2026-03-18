@@ -69,8 +69,28 @@ module Postal
         end
       ensure
         Thread.current[:job_id] = nil
-        self.class.job_channel.ack(delivery_info.delivery_tag)
-        @running_jobs.delete(message['id']) if message['id']
+
+        begin
+          self.class.job_channel.ack(delivery_info.delivery_tag)
+        rescue Bunny::ChannelAlreadyClosed => e
+          # If RabbitMQ has closed the channel, the consumer is no longer valid.
+          # Log clearly and terminate so the supervisor / Docker can restart
+          # the worker and re-establish a healthy consumer.
+          logger.error "[#{message && message['id']}] Bunny::ChannelAlreadyClosed while acking delivery: #{e.message}"
+          if e.backtrace
+            e.backtrace.first(5).each do |line|
+              logger.error "[#{message && message['id']}]    #{line}"
+            end
+          end
+          exit 1
+        rescue StandardError => e
+          # Guard against any other unexpected ack errors to avoid leaving the
+          # worker in a half-broken state with no active consumers.
+          logger.error "[#{message && message['id']}] Unexpected error while acking delivery: #{e.class}: #{e.message}"
+          exit 1
+        end
+
+        @running_jobs.delete(message['id']) if message && message['id']
         set_process_name
 
         if @exit && @running_jobs.empty?

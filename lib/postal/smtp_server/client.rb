@@ -517,9 +517,18 @@ module Postal
             if server.suspended?
               '535 Mail server has been suspended'
             else
-              recipient_domain = rcpt_to.split('@').last&.downcase
-              if recipient_domain && Domain.where('LOWER(name) = ?', recipient_domain).where(owner: server).exists?
-                '550 Cannot send to local domain without a route'
+              # For outbound sending, check if MAIL FROM domain exists locally (not RCPT TO)
+              mail_from_domain = @mail_from.split('@').last&.downcase
+              if mail_from_domain && Domain.where('LOWER(name) = ?', mail_from_domain).where(owner: server).exists?
+                # Check if there's a route for this sender domain
+                unless Route.find_by_name_and_domain('*', mail_from_domain) || Route.where(domain: Domain.where('LOWER(name) = ?', mail_from_domain).where(owner: server)).exists?
+                  log "Outbound from local domain #{mail_from_domain} without verified route"
+                  '550 Cannot send from local domain without a route'
+                else
+                  log "Added external address '#{rcpt_to}'"
+                  @recipients << [:credential, rcpt_to, server]
+                  '250 OK'
+                end
               else
                 log "Added external address '#{rcpt_to}'"
                 @recipients << [:credential, rcpt_to, server]
@@ -762,7 +771,9 @@ module Postal
         end
 
         has_outgoing_recipients = @recipients.any? { |recipient| recipient[0] == :credential }
-        if has_outgoing_recipients && authenticated_server && authenticated_server.block_outgoing_without_verified_route? && !authenticated_server.has_verified_route_for?(authenticated_domain)
+        # Only check verified route requirement if the setting is enabled AND we have an authenticated domain
+        if has_outgoing_recipients && authenticated_server && authenticated_server.block_outgoing_without_verified_route? && authenticated_domain && !authenticated_server.has_verified_route_for?(authenticated_domain)
+          log "Outgoing blocked: domain #{authenticated_domain.name} has no verified incoming route on this server (setting enabled)"
           transaction_reset
           @state = :welcomed
           return '550 Outgoing blocked: domain has no verified incoming route on this server'

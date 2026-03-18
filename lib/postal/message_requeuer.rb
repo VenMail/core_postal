@@ -8,8 +8,20 @@ module Postal
       log "Running message requeuer..."
       loop do
         @running = true
-        QueuedMessage.requeue_all
-        @running = false
+        begin
+          QueuedMessage.requeue_all
+        rescue => e
+          log "Error in MessageRequeuer: #{e.class}: #{e.message}"
+          if e.backtrace
+            e.backtrace.first(5).each do |line|
+              log "    #{line}"
+            end
+          end
+          # Exit so the supervisor / Docker can restart a clean requeuer
+          Process.exit(1)
+        ensure
+          @running = false
+        end
         check_exit
         sleep 5
       end
