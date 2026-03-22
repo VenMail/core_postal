@@ -22,7 +22,7 @@ class ApplicationController < ActionController::Base
   def admin_required
     if logged_in?
       unless current_user.admin?
-        render :plain => "Not permitted"
+        render :plain => "Not permitted", :status => :forbidden
       end
     else
       redirect_to login_path(:return_to => request.fullpath)
