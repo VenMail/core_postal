@@ -428,18 +428,41 @@ module Postal
       # Add dkim header
       #
       def add_outgoing_headers
+        # Step 1: Add VVS headers BEFORE DKIM (so DKIM covers them)
+        if Postal.config.vvs&.signing_enabled && self.domain
+          begin
+            agent_key = VvsAgentKey.active.for_agent('default', self.domain.name).order(key_version: :desc).first
+            if agent_key
+              parsed = self.raw_message.to_s
+              from_match = parsed.match(/^From:\s*(.+?)$/im)
+              to_match = parsed.match(/^To:\s*(.+?)$/im)
+              subject_match = parsed.match(/^Subject:\s*(.+?)$/im)
+              date_match = parsed.match(/^Date:\s*(.+?)$/im)
+
+              vvs_headers = Postal::VVS::Signer.sign(
+                agent_key,
+                from: from_match ? from_match[1].strip : '',
+                to: to_match ? to_match[1].strip : '',
+                subject: subject_match ? subject_match[1].strip : '',
+                date: date_match ? date_match[1].strip : '',
+                body: self.raw_body.to_s
+              )
+
+              vvs_header_lines = vvs_headers.map { |k, v| "#{k}: #{v}" }.join("\r\n")
+              append_headers(vvs_header_lines)
+            end
+          rescue => e
+            Postal.logger.warn "VVS signing failed: #{e.message}" if Postal.respond_to?(:logger)
+          end
+        end
+
+        # Step 2: Generate DKIM (now reads message WITH VVS headers)
         headers = []
-        
-        # Add DKIM header if domain is present
         if self.domain
           dkim = Postal::DKIMHeader.new(self.domain, self.raw_message)
           headers << dkim.dkim_header
         end
-        
-        # Add custom message ID header
         headers << "X-Venmail-MsgID: #{self.token}"
-        
-        # Append all headers to the email message
         append_headers(headers.join("\r\n"))
       end
       
