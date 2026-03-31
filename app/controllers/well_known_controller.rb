@@ -4,7 +4,8 @@ class WellKnownController < ApplicationController
 
   def show
     agent_name = params[:agent_name]
-    agent_key = VvsAgentKey.active.where(agent_name: agent_name).order(key_version: :desc).first
+    domain = request.host.to_s.split(':').first
+    agent_key = VvsAgentKey.active.where(agent_name: agent_name, domain: domain).order(key_version: :desc).first
 
     if agent_key
       render json: {
