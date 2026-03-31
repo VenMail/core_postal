@@ -282,7 +282,7 @@
     if @message.raw_message?
       # Reset spam flags when manually retrying to give message another chance
       if @message.spam == 1 || @message.spam_score > 0
-        log "Resetting spam flags for message #{@message.id} during manual retry with IP"
+        Rails.logger.info "Resetting spam flags for message #{@message.id} during manual retry with IP"
         @message.update_columns(:spam => 0, :inspected => 0)
         @message.reload  # Ensure fresh data
       end
