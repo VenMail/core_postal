@@ -33,6 +33,7 @@ module Postal
         return :failed unless at_index && at_index > 0
         agent_name = agent_id[0...at_index]
         domain = agent_id[(at_index + 1)..]
+        return :failed if domain.nil? || domain.empty?
 
         # 5. Check nonce if enabled
         if Postal.config.vvs&.nonce_check

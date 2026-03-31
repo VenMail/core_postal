@@ -7,7 +7,11 @@ module Postal
     class KeyResolver
 
       CACHE = {}
-      CACHE_TTL = 300
+      DEFAULT_CACHE_TTL = 300
+
+      def self.cache_ttl
+        Postal.config.vvs&.key_cache_ttl || DEFAULT_CACHE_TTL
+      end
 
       def self.resolve(agent_name, domain, method, embedded_key: nil)
         cache_key = "#{method}:#{agent_name}@#{domain}"
@@ -29,7 +33,7 @@ module Postal
         end
 
         if result
-          CACHE[cache_key] = { data: result, expires: Time.now.to_i + CACHE_TTL }
+          CACHE[cache_key] = { data: result, expires: Time.now.to_i + cache_ttl }
         end
         result
       end
