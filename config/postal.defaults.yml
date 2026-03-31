@@ -147,3 +147,12 @@ clamav:
 smtp_client:
   open_timeout: 30
   read_timeout: 60
+
+vvs:
+  enabled: false
+  signing_enabled: false
+  verification_enabled: false
+  default_verify_methods: "well-known,dns"
+  timestamp_window: 3600
+  nonce_check: true
+  key_cache_ttl: 300

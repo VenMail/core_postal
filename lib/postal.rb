@@ -36,6 +36,7 @@ module Postal
     autoload :UserCreator
     autoload :Version
     autoload :Worker
+    autoload :VVS
   end
 
   def self.eager_load!

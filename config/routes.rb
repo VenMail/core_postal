@@ -1,5 +1,7 @@
 Rails.application.routes.draw do
 
+  get '/.well-known/venmail-agent/:agent_name', to: 'well_known#show'
+
   scope "org/:org_permalink", :as => 'organization' do
     resources :domains, :only => [:index, :new, :create, :destroy] do
       match :verify, :on => :member, :via => [:get, :post]

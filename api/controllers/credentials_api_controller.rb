@@ -22,13 +22,15 @@ controller :credentials do
   end
 
   action :create do
-    title "Create SMTP credential"
-    description "Create a new SMTP credential"
+    title "Create credential"
+    description "Create a new SMTP or API credential"
     param :name, "Name for the credential", type: String
+    param :type, "Credential type (SMTP or API)", type: String
     param :hold, "Whether to hold the new credential", type: :boolean
     returns Hash
     action do
-      cred = identity.server.credentials.build(type: 'SMTP', name: params.name, hold: !!params.hold)
+      cred_type = (params.type && Credential::TYPES.include?(params.type)) ? params.type : 'SMTP'
+      cred = identity.server.credentials.build(type: cred_type, name: params.name, hold: !!params.hold)
       if cred.save
         { id: cred.id, uuid: cred.uuid, name: cred.name, type: cred.type, hold: cred.hold, key: cred.key }
       else
