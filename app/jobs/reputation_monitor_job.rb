@@ -10,6 +10,19 @@ class ReputationMonitorJob < Postal::Job
   AI_SPAM_THRESHOLD = 0.7
   AI_WARNING_THRESHOLD = 0.5
   
+  # Enhanced spam detection thresholds
+  SPAM_SCORE_THRESHOLD = 10.0  # Block if spam score >= 10
+  IP_SPAM_MESSAGE_THRESHOLD = 5  # Block IP after 5 spam messages
+  REPLY_TO_MISMATCH_THRESHOLD = 3  # Investigate after 3 Reply-To mismatches
+  MONITORING_WINDOW_MINUTES = 5  # Check last 5 minutes for active attacks
+  
+  # Whitelisted IPs - Never block these (admin IPs, trusted sources)
+  WHITELISTED_IPS = [
+    '102.219.153.212',  # Admin IP
+    '127.0.0.1',
+    '::1'
+  ].freeze
+  
   # Performance tuning
   BATCH_SIZE = 1000
   MAX_MEMORY_GROUPS = 5000
@@ -33,10 +46,18 @@ class ReputationMonitorJob < Postal::Job
   EMAIL_REGEX = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.freeze
   URL_REGEX = /https?:\/\/\S+/i.freeze
   WHITESPACE_REGEX = /\s+/.freeze
+  REPLY_TO_REGEX = /^Reply-To:\s*(.+)$/mi.freeze
+  FROM_REGEX = /^From:\s*(.+)$/mi.freeze
+  
+  # IP validation regex
+  IPV4_REGEX = /\A(\d{1,3}\.){3}\d{1,3}\z/.freeze
   
   def perform
     Rails.logger.info "ReputationMonitorJob: Starting optimized analysis"
 
+    # Check for active attacks first (high priority)
+    detect_and_block_active_attacks
+    
     processed_credentials = 0
     Credential.where(hold: false).find_each(batch_size: CREDENTIAL_BATCH_SIZE) do |credential|
       monitor_credential_optimized(credential)
@@ -184,7 +205,7 @@ class ReputationMonitorJob < Postal::Job
     begin
       # Extract sender from 'From' header
       if message.raw_headers
-        from_match = message.raw_headers.match(/^From:\s*(.+)$/mi)
+        from_match = message.raw_headers.match(FROM_REGEX)
         if from_match
           from_address = from_match[1].strip
           # Extract email address from "Name <email@domain.com>" format
@@ -430,5 +451,246 @@ class ReputationMonitorJob < Postal::Job
     Rails.logger.info "ReputationMonitorJob: Auto-unlocked credential #{credential.uuid}"
   rescue => e
     Rails.logger.error "ReputationMonitorJob: Credential reset failed for #{credential.id}: #{e.message}"
+  end
+  
+  # Enhanced spam detection methods
+  
+  def detect_and_block_active_attacks
+    Rails.logger.info "ReputationMonitorJob: Checking for active attacks"
+    
+    since_time = MONITORING_WINDOW_MINUTES.minutes.ago
+    
+    # Find IPs with high spam scores
+    suspicious_ips = find_suspicious_ips(since_time)
+    
+    suspicious_ips.each do |ip_data|
+      ip_address = ip_data['ip_address']
+      spam_count = ip_data['spam_count'].to_i
+      avg_score = ip_data['avg_score'].to_f
+      
+      if spam_count >= IP_SPAM_MESSAGE_THRESHOLD
+        block_ip_address(ip_address, spam_count, avg_score)
+      end
+    end
+    
+    # Check for Reply-To mismatch patterns
+    check_reply_to_mismatches(since_time)
+    
+  rescue => e
+    Rails.logger.error "ReputationMonitorJob: Active attack detection failed: #{e.message}"
+  end
+  
+  def find_suspicious_ips(since_time)
+    # Query all server databases for high spam scores
+    suspicious_ips = []
+    
+    Server.where(suspended_at: nil).find_each do |server|
+      begin
+        query_params = {
+          where: {
+            scope: 'outgoing',
+            timestamp: { greater_than: since_time.to_f },
+            spam_score: { greater_than_or_equal: SPAM_SCORE_THRESHOLD }
+          },
+          limit: 1000
+        }
+        
+        messages = server.message_db.select('messages', query_params)
+        
+        # Group by IP address
+        ip_groups = messages.group_by { |m| m['ip_address'] }
+        
+        ip_groups.each do |ip, msgs|
+          next if ip.blank? || ip == '127.0.0.1'
+          next if WHITELISTED_IPS.include?(ip)  # Skip whitelisted IPs
+          
+          spam_scores = msgs.map { |m| m['spam_score'].to_f }
+          avg_score = spam_scores.empty? ? 0.0 : spam_scores.sum / spam_scores.size
+          
+          suspicious_ips << {
+            'ip_address' => ip,
+            'spam_count' => msgs.size,
+            'avg_score' => avg_score,
+            'server_id' => server.id
+          }
+        end
+      rescue => e
+        Rails.logger.error "ReputationMonitorJob: IP check failed for server #{server.id}: #{e.message}"
+      end
+    end
+    
+    suspicious_ips
+  end
+  
+  def block_ip_address(ip_address, spam_count, avg_score)
+    # Validate IP format
+    unless valid_ip?(ip_address)
+      Rails.logger.error "ReputationMonitorJob: Invalid IP address format: #{ip_address}"
+      return
+    end
+    
+    # Check if IP is whitelisted
+    if WHITELISTED_IPS.include?(ip_address)
+      Rails.logger.info "ReputationMonitorJob: Skipping whitelisted IP #{ip_address}"
+      return
+    end
+    
+    # Check if already blocked
+    existing_block = GlobalSuppression.where(
+      type: 'ip_block',
+      email_address: ip_address
+    ).first
+    
+    return if existing_block
+    
+    Rails.logger.warn "ReputationMonitorJob: BLOCKING IP #{ip_address} - #{spam_count} spam messages, avg score: #{avg_score.round(2)}"
+    
+    # Use transaction to ensure consistency
+    GlobalSuppression.transaction do
+      # Add to global suppression list
+      GlobalSuppression.create!(
+        type: 'ip_block',
+        email_address: ip_address,
+        reason: "Auto-blocked: #{spam_count} spam messages with avg score #{avg_score.round(2)}",
+        created_at: Time.now
+      )
+      
+      # Execute firewall commands
+      execute_firewall_block(ip_address)
+    end
+    
+    # Trigger webhook for monitoring (outside transaction)
+    notify_ip_blocked(ip_address, spam_count, avg_score)
+    
+  rescue => e
+    Rails.logger.error "ReputationMonitorJob: IP blocking failed for #{ip_address}: #{e.message}"
+  end
+  
+  def execute_firewall_block(ip_address)
+    # Add firewalld rule
+    firewall_result = system("sudo firewall-cmd --permanent --add-rich-rule=\"rule family='ipv4' source address='#{ip_address}' reject\" 2>&1")
+    unless firewall_result
+      Rails.logger.error "ReputationMonitorJob: Failed to add firewalld rule for #{ip_address}"
+      return false
+    end
+    
+    reload_result = system("sudo firewall-cmd --reload 2>&1")
+    unless reload_result
+      Rails.logger.error "ReputationMonitorJob: Failed to reload firewalld for #{ip_address}"
+      return false
+    end
+    
+    # Add iptables rule
+    iptables_input = system("sudo iptables -I INPUT -s #{ip_address} -j DROP 2>&1")
+    iptables_output = system("sudo iptables -I OUTPUT -d #{ip_address} -j DROP 2>&1")
+    
+    unless iptables_input && iptables_output
+      Rails.logger.error "ReputationMonitorJob: Failed to add iptables rules for #{ip_address}"
+      return false
+    end
+    
+    # Kill active connections (ss command may not exist, so ignore errors)
+    system("sudo ss -K dst #{ip_address} 2>/dev/null")
+    system("sudo ss -K src #{ip_address} 2>/dev/null")
+    
+    Rails.logger.info "ReputationMonitorJob: Firewall rules applied for #{ip_address}"
+    true
+  rescue => e
+    Rails.logger.error "ReputationMonitorJob: Firewall execution failed for #{ip_address}: #{e.message}"
+    false
+  end
+  
+  def check_reply_to_mismatches(since_time)
+    Server.where(suspended_at: nil).find_each do |server|
+      begin
+        query_params = {
+          where: {
+            scope: 'outgoing',
+            timestamp: { greater_than: since_time.to_f }
+          },
+          limit: 1000
+        }
+        
+        messages = server.message_db.select('messages', query_params)
+        
+        # Check for Reply-To mismatches
+        mismatch_ips = {}
+        
+        messages.each do |msg|
+          next unless msg['raw_headers']
+          
+          reply_to = extract_reply_to(msg['raw_headers'])
+          from_email = extract_from_email(msg['raw_headers'])
+          
+          next unless reply_to && from_email
+          
+          reply_to_domain = extract_domain(reply_to)
+          from_domain = extract_domain(from_email)
+          
+          if reply_to_domain && from_domain && reply_to_domain != from_domain
+            ip = msg['ip_address']
+            next if ip.blank?
+            
+            mismatch_ips[ip] ||= 0
+            mismatch_ips[ip] += 1
+          end
+        end
+        
+        # Log IPs with multiple Reply-To mismatches
+        mismatch_ips.each do |ip, count|
+          if count >= REPLY_TO_MISMATCH_THRESHOLD
+            Rails.logger.warn "ReputationMonitorJob: IP #{ip} has #{count} Reply-To mismatches - possible compromise"
+          end
+        end
+        
+      rescue => e
+        Rails.logger.error "ReputationMonitorJob: Reply-To check failed for server #{server.id}: #{e.message}"
+      end
+    end
+  end
+  
+  def extract_reply_to(headers)
+    match = headers.match(REPLY_TO_REGEX)
+    return nil unless match
+    
+    email_match = match[1].match(EMAIL_REGEX)
+    email_match ? email_match[0].downcase : nil
+  end
+  
+  def extract_from_email(headers)
+    match = headers.match(FROM_REGEX)
+    return nil unless match
+    
+    email_match = match[1].match(EMAIL_REGEX)
+    email_match ? email_match[0].downcase : nil
+  end
+  
+  def extract_domain(email)
+    return nil unless email
+    parts = email.split('@')
+    parts.size == 2 ? parts[1] : nil
+  end
+  
+  def notify_ip_blocked(ip_address, spam_count, avg_score)
+    # Log to monitoring system
+    Rails.logger.warn "[SECURITY] IP BLOCKED: #{ip_address} | Spam count: #{spam_count} | Avg score: #{avg_score.round(2)}"
+    
+    # Could trigger webhook, email alert, Slack notification, etc.
+    # WebhookRequest.trigger(...) if needed
+  rescue => e
+    Rails.logger.error "ReputationMonitorJob: Notification failed for #{ip_address}: #{e.message}"
+  end
+  
+  # Helper method to validate IP address format
+  def valid_ip?(ip)
+    return false if ip.blank?
+    return true if ip == '::1'  # Allow IPv6 localhost
+    
+    # Validate IPv4 format
+    return false unless ip.match?(IPV4_REGEX)
+    
+    # Check each octet is valid (0-255)
+    octets = ip.split('.')
+    octets.all? { |octet| octet.to_i.between?(0, 255) }
   end
 end

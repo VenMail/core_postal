@@ -649,8 +649,47 @@ module Postal
       'netflix', 'spotify', 'linkedin', 'twitter', 'x',
       'paypal', 'venmo', 'cash app', 'zelle',
       'chase', 'bank of america', 'wells fargo', 'citibank',
-      'dropbox', 'slack', 'zoom', 'adobe', 'salesforce'
+      'dropbox', 'slack', 'zoom', 'adobe', 'salesforce',
+      'indeed', 'upwork', 'fiverr', 'freelancer'
     ].freeze
+    
+    # Job scam patterns - common in compromised account spam
+    JOB_SCAM_PHRASES = [
+      'virtual assistant',
+      'data entry',
+      'work from home',
+      'earn $',
+      'earn money',
+      'weekly pay',
+      'part-time job',
+      'full-time job',
+      'remote position',
+      'no experience required',
+      'easy money',
+      'flexible hours',
+      'work in your free time',
+      'work in your comfort zone',
+      'personal assistant',
+      'administrative assistant',
+      'customer service representative',
+      'make $',
+      'guaranteed income',
+      'weekly income',
+      'monthly income',
+      'immediate hire',
+      'hiring immediately',
+      'apply now',
+      'send resume to',
+      'email for details',
+      'contact for more information',
+      'interested in earning'
+    ].freeze
+    
+    # Server context patterns - helps detect when email content doesn't match server purpose
+    SERVER_CONTEXT_KEYWORDS = {
+      'bammby.com' => ['dating', 'match', 'profile', 'meet', 'relationship', 'single'],
+      'venia.cloud' => ['cloud', 'storage', 'backup', 'sync', 'file']
+    }.freeze
 
     # Patterns indicating random/official-looking but fake sender addresses
     RANDOM_SENDER_PATTERNS = [
@@ -756,6 +795,148 @@ module Postal
         if local_part.match?(/\d{3,}/) && local_part.match?(/[a-z]{5,}/)
           log "Suspicious alphanumeric pattern: #{sender_email}"
           score += 1
+        end
+        
+        score
+      end
+      
+      def check_reply_to_mismatch(headers, sender_email)
+        return 0 unless headers && sender_email
+        
+        # Extract Reply-To header
+        reply_to_header = headers.find { |h| h.match?(/^Reply-To:/i) }
+        return 0 unless reply_to_header
+        
+        # Extract email from Reply-To header
+        reply_to_email = reply_to_header.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i)&.captures&.first
+        return 0 unless reply_to_email
+        
+        sender_domain = extract_domain_from_email(sender_email)
+        reply_to_domain = extract_domain_from_email(reply_to_email)
+        
+        return 0 unless sender_domain && reply_to_domain
+        
+        # If Reply-To domain is different from sender domain, this is highly suspicious
+        if sender_domain != reply_to_domain
+          # Check if both are trusted domains (legitimate forwarding)
+          sender_trusted = TRUSTED_DOMAINS.any? { |d| sender_domain.end_with?(d) }
+          reply_trusted = TRUSTED_DOMAINS.any? { |d| reply_to_domain.end_with?(d) }
+          
+          # If sender is not trusted but has Reply-To to different domain, high penalty
+          unless sender_trusted && reply_trusted
+            log "Reply-To mismatch: From #{sender_email} but Reply-To #{reply_to_email}"
+            return 8  # High penalty for reply-to redirection
+          end
+        end
+        
+        0
+      end
+      
+      def check_job_scam_patterns(subject, body_text)
+        return 0 unless subject || body_text
+        
+        text = (subject.to_s + ' ' + body_text.to_s).downcase
+        
+        # Count job scam phrases
+        job_phrase_count = JOB_SCAM_PHRASES.sum do |phrase|
+          text.scan(/#{Regexp.escape(phrase)}/i).size
+        end
+        
+        return 0 if job_phrase_count == 0
+        
+        score = 0
+        
+        # Base score for job scam phrases
+        score += job_phrase_count * 2
+        
+        # Additional penalties for specific patterns
+        
+        # Money amount mentioned with job offer
+        if text.match?(/\$\d+.*(?:weekly|daily|monthly|hourly)/i)
+          log "Job scam: Money amount with time period detected"
+          score += 4
+        end
+        
+        # "Send email to" or "contact" with external email
+        if text.match?(/(?:send|email|contact).*(?:to|at).*@(?!#{Regexp.escape(extract_domain_from_email($sender_email) || '')})/i)
+          log "Job scam: External contact email detected"
+          score += 5
+        end
+        
+        # Brand impersonation (Indeed, Upwork, etc.) without matching domain
+        IMPERSONATED_BRANDS.each do |brand|
+          if text.include?(brand) && job_phrase_count > 0
+            log "Job scam: Brand '#{brand}' mentioned with job offer"
+            score += 3
+            break
+          end
+        end
+        
+        log "Job scam patterns detected: #{job_phrase_count} phrases, score: #{score}" if score > 0
+        score
+      end
+      
+      def check_server_context_mismatch(sender_domain, subject, body_text)
+        return 0 unless sender_domain && (subject || body_text)
+        
+        # Check if sender domain has defined context keywords
+        expected_keywords = SERVER_CONTEXT_KEYWORDS[sender_domain]
+        return 0 unless expected_keywords
+        
+        text = (subject.to_s + ' ' + body_text.to_s).downcase
+        
+        # Count how many expected keywords are present
+        keyword_matches = expected_keywords.count { |keyword| text.include?(keyword) }
+        
+        # If email has no context keywords for this server, it's suspicious
+        if keyword_matches == 0
+          log "Server context mismatch: #{sender_domain} email contains no expected keywords"
+          
+          # Check if it contains job scam or other unrelated content
+          has_job_content = JOB_SCAM_PHRASES.any? { |phrase| text.include?(phrase) }
+          
+          if has_job_content
+            log "Server context mismatch: Dating/specific server sending job offers"
+            return 10  # Very high penalty for context mismatch
+          end
+          
+          return 5  # Moderate penalty for missing context
+        end
+        
+        0
+      end
+      
+      def check_external_contact_redirection(body_text, sender_email)
+        return 0 unless body_text && sender_email
+        
+        sender_domain = extract_domain_from_email(sender_email)
+        return 0 unless sender_domain
+        
+        text = body_text.downcase
+        score = 0
+        
+        # Look for patterns like "send email to", "contact at", "reply to"
+        redirection_patterns = [
+          /(?:send|email|contact|reply|reach).*(?:to|at|me at)\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i,
+          /(?:email|contact)\s*(?:me|us)\s*(?:at|:)\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i,
+          /for\s*(?:more\s*)?(?:details|information).*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i
+        ]
+        
+        redirection_patterns.each do |pattern|
+          matches = body_text.scan(pattern)
+          matches.each do |match|
+            external_email = match.is_a?(Array) ? match.first : match
+            next unless external_email
+            
+            external_domain = extract_domain_from_email(external_email)
+            next unless external_domain
+            
+            # If asking to contact a different domain, suspicious
+            if external_domain != sender_domain
+              log "External contact redirection: From #{sender_domain} asking to contact #{external_email}"
+              score += 6
+            end
+          end
         end
         
         score
@@ -1188,6 +1369,12 @@ module Postal
           phishing_tracking_score,
           restricted_domain_score
         )
+        
+        # Enhanced spam detection for compromised accounts
+        reply_to_mismatch_score = check_reply_to_mismatch(headers, sender_email)
+        job_scam_score = check_job_scam_patterns(subject, body_str)
+        context_mismatch_score = check_server_context_mismatch(from_domain, subject, body_str)
+        external_contact_score = check_external_contact_redirection(body_str, sender_email)
 
         gibberish_pattern = /(?<![aeiouy])[aeiouy]{3,}(?![aeiouy])|(?<![bcdfghjklmnpqrstvwxyz])[bcdfghjklmnpqrstvwxyz]{3,}(?![bcdfghjklmnpqrstvwxyz])/
         contains_gibberish = body_lower.match?(gibberish_pattern)
@@ -1215,6 +1402,10 @@ module Postal
         log "brand_domain_mismatch_score: #{brand_domain_mismatch_score}"
         log "random_sender_score: #{random_sender_score}"
         log "greeting_urgency_score: #{greeting_urgency_score}"
+        log "reply_to_mismatch_score: #{reply_to_mismatch_score}"
+        log "job_scam_score: #{job_scam_score}"
+        log "context_mismatch_score: #{context_mismatch_score}"
+        log "external_contact_score: #{external_contact_score}"
         log "bad_links: #{bad_links}"
         log "mismatched: #{mismatched}"
         log "contains_gibberish: #{contains_gibberish}"
@@ -1348,6 +1539,27 @@ module Postal
         if greeting_urgency_score > 0
           score += greeting_urgency_score
           log "Greeting urgency penalty: +#{greeting_urgency_score}"
+        end
+        
+        # Add enhanced spam detection scores
+        if reply_to_mismatch_score > 0
+          score += reply_to_mismatch_score
+          log "Reply-To mismatch penalty: +#{reply_to_mismatch_score}"
+        end
+        
+        if job_scam_score > 0
+          score += job_scam_score
+          log "Job scam pattern penalty: +#{job_scam_score}"
+        end
+        
+        if context_mismatch_score > 0
+          score += context_mismatch_score
+          log "Server context mismatch penalty: +#{context_mismatch_score}"
+        end
+        
+        if external_contact_score > 0
+          score += external_contact_score
+          log "External contact redirection penalty: +#{external_contact_score}"
         end
 
         # Apply system, business, and meeting email score reductions if detected

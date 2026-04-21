@@ -9,12 +9,15 @@ module Clockwork
     RequeueWebhooksJob.queue(:main)
     SendNotificationsJob.queue(:main)
   end
+  
+  every 5.minutes, 'every-5-minutes' do
+    ReputationMonitorJob.queue(:main)
+  end
 
   every 1.hour, 'every-hour', :at => ['**:15'] do
     CheckAllDNSJob.queue(:main)
     ExpireHeldMessagesJob.queue(:main)
     CleanupAuthieSessionsJob.queue(:main)
-    ReputationMonitorJob.queue(:main)
   end
 
   every 1.hour, 'every-hour', :at => ['**:45'] do
