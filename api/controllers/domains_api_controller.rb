@@ -133,7 +133,7 @@ controller :domains do
   action :verify do
     title "Verify domain TXT"
     description "Verify a single domain based on ID"
-    
+
     param :id, "ID of the domain", :type => Integer, :required => true
     param :force, "Force verification", :type => :boolean, :required => false
     returns Hash
@@ -141,7 +141,7 @@ controller :domains do
     action do
       begin
         domain = Domain.find_by(id: params.id)
-        
+
         unless domain
           error("Domain with ID #{params.id} not found", 404)
         else
@@ -166,6 +166,36 @@ controller :domains do
       rescue => e
         custom_data = e.data if e.is_a?(Moonrope::Errors::StructuredError)
         error "An error occurred while retrieving the domain: #{e.message}", :details => custom_data
+      end
+    end
+  end
+
+  action :destroy do
+    title "Delete domain"
+    description "Delete a domain from the server"
+
+    param :id, "ID of the domain", :type => Integer, :required => true
+    returns Hash
+
+    action do
+      begin
+        domain = Domain.find_by(id: params.id)
+
+        unless domain
+          error("Domain with ID #{params.id} not found", 404)
+        else
+          if domain.destroy
+            {
+              success: true,
+              message: "Domain #{domain.name} deleted successfully"
+            }
+          else
+            error "Failed to delete domain", :errors => domain.errors.full_messages
+          end
+        end
+      rescue => e
+        custom_data = e.data if e.is_a?(Moonrope::Errors::StructuredError)
+        error "An error occurred while deleting the domain: #{e.message}", :details => custom_data
       end
     end
   end
