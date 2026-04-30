@@ -57,7 +57,7 @@ class Domain < ApplicationRecord
 
   random_string :dkim_identifier_string, type: :chars, length: 6, unique: true, upper_letters_only: true
 
-  before_create :generate_dkim_key
+  before_create :generate_dkim_key, unless: :dkim_private_key_provided?
   before_create :set_default_daily_send_limit
 
   scope :verified, -> { where.not(verified_at: nil) }
@@ -139,6 +139,10 @@ class Domain < ApplicationRecord
 
   def generate_dkim_key
     self.dkim_private_key = OpenSSL::PKey::RSA.new(1024).to_s
+  end
+
+  def dkim_private_key_provided?
+    dkim_private_key.present?
   end
 
   def set_default_daily_send_limit

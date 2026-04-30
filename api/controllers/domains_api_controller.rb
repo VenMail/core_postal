@@ -28,18 +28,33 @@ controller :domains do
 
   action :domain do
     title "Add a domain"
-    description "Add a new domain based on the given name parameter"
-    
+    description "Add a new domain based on the given name parameter. Supports BYODKIM by accepting existing DKIM keys."
+
     param :name, "Name of the domain", :type => String
     param :include_private_key, "Include the DKIM private key (for internal provisioning only)", :type => :boolean, :required => false
+    param :dkim_private_key, "DKIM private key to use (BYODKIM - will not generate new key if provided)", :type => String, :required => false
+    param :dkim_record, "DKIM record to use (BYODKIM)", :type => String, :required => false
+    param :dkim_identifier_string, "DKIM identifier string to use (BYODKIM)", :type => String, :required => false
     error 'RecordInvalid', "The provided data was not sufficient to create a domain", attributes: { errors: "A hash of error details" }
     returns Hash
-    
+
     action do
       begin
         @server = identity.server
 
-        @domain = @server.domains.build(name: params.name, verification_method: "DNS")
+        # Build domain with optional BYODKIM parameters
+        domain_params = { name: params.name, verification_method: "DNS" }
+
+        # If DKIM keys are provided, use them instead of generating new ones
+        if params.dkim_private_key.present?
+          domain_params[:dkim_private_key] = params.dkim_private_key
+        end
+
+        if params.dkim_identifier_string.present?
+          domain_params[:dkim_identifier_string] = params.dkim_identifier_string
+        end
+
+        @domain = @server.domains.build(domain_params)
 
         if @domain.save
           dkim_record = @domain.dkim_record
