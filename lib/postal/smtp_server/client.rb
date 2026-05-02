@@ -21,6 +21,13 @@ module Postal
         @logging_enabled = true
         @ip_address = ip_address
         if @ip_address
+          # Check if IP is globally banned immediately on connection
+          if GlobalSuppression.ip_banned?(@ip_address)
+            log "\e[31m   REJECT: Connection from globally banned IP #{@ip_address}\e[0m"
+            @finished = true
+            @banned = true
+            return
+          end
           check_ip_address
           @state = :welcome
         else
@@ -71,6 +78,10 @@ module Postal
 
       def finished?
         @finished || false
+      end
+
+      def banned?
+        @banned || false
       end
 
       def start_tls?
@@ -424,6 +435,12 @@ module Postal
 
       def rcpt_to(data)
         return '503 EHLO/HELO and MAIL FROM first please' unless in_state(:mail_from_received, :rcpt_to_received)
+        
+        # Check if IP is globally banned before accepting any recipient
+        if @ip_address && GlobalSuppression.ip_banned?(@ip_address)
+          log "\e[31m   REJECT: RCPT TO from globally banned IP #{@ip_address}\e[0m"
+          return '550 Your IP address has been banned'
+        end
 
         begin
           # Extract RCPT TO address and clean it
