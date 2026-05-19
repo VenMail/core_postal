@@ -298,10 +298,7 @@ class Server < ApplicationRecord
     return false unless domain
     return false unless domain.name.to_s.casecmp(domain_name).zero?
 
-    exact_route_exists?(local_part, domain_name) ||
-      mail_user_exists?(address) ||
-      api_available_sender_address_authorized?(address) ||
-      (block_outgoing_without_verified_route? && verified_route_available_for_sender?(address, domain))
+    exact_route_exists?(local_part, domain_name) || mail_user_exists?(address) || api_available_sender_address_authorized?(address)
   end
 
   def exact_route_exists?(local_part, domain_name)

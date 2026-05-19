@@ -75,11 +75,18 @@ describe Server do
       expect(server.sender_address_authorized?('alex@bammby.com')).to be false
     end
 
-    it "allows domain senders when the server requires a verified incoming route and the domain has one" do
+    it "does not allow arbitrary domain senders when the server requires a verified incoming route" do
       server.update!(block_outgoing_without_verified_route: true)
       Route.create!(server: server, domain: domain, name: 'support', mode: 'Accept', spam_mode: 'Mark')
 
-      expect(server.sender_address_authorized?('vid-intro-60529@bammby.com')).to be true
+      expect(server.sender_address_authorized?('vid-intro-60529@bammby.com')).to be false
+    end
+
+    it "allows exact route sender addresses when the server requires a verified incoming route" do
+      server.update!(block_outgoing_without_verified_route: true)
+      Route.create!(server: server, domain: domain, name: 'support', mode: 'Accept', spam_mode: 'Mark')
+
+      expect(server.sender_address_authorized?('support@bammby.com')).to be true
     end
 
     it "counts server routes by domain name for the verified route gate" do
