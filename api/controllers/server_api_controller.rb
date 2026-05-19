@@ -12,19 +12,32 @@ controller :server do
     param :webhook, "Webhook of the server", type: String
     param :event_hook, "Event webhook of the server", type: String
     param :organization_id, "Organization ID", type: Integer
+    param :display_name, "Display name of the upstream Venmail organization", type: String
+    param :venmail_organization_id, "Upstream Venmail organization ID", type: Integer
     returns Hash
 
     action do  
       organization_id = params.organization_id || 2 # Use organization_id from params or default to 2
+      upstream_organization_id = params.venmail_organization_id.to_s.strip.presence
+      server_name = params.name.to_s.strip
+
+      if upstream_organization_id
+        server_prefix = "venmail-org-#{upstream_organization_id}"
+        unless server_name == server_prefix || server_name.start_with?("#{server_prefix}-")
+          name_source = params.display_name.to_s.strip.presence || server_name
+          name_slug = name_source.parameterize.presence || "organization"
+          server_name = "#{server_prefix}-#{name_slug}"[0, 120]
+        end
+      end
 
       @organization = Organization.find(organization_id)
 
       @organization.with_lock do
-        @server = @organization.servers.where(name: params.name).first
+        @server = @organization.servers.where(name: server_name).first
 
         unless @server
           @server = @organization.servers.build(
-            name: params.name,
+            name: server_name,
             mode: params.mode,
             organization_id: organization_id
           )
@@ -40,17 +53,20 @@ controller :server do
 
       # Create a new default HTTP endpoint for the created server if one does not already exist
       base_url = Postal.config.general.external_api_base_url.to_s.chomp('/')
+      venmail_org_id = upstream_organization_id || @server.id
+      endpoint_url = params.webhook.to_s.strip.presence || "#{base_url}/api/v1/mails/org/#{venmail_org_id}"
+      event_hook_url = params.event_hook.to_s.strip.presence || "#{base_url}/api/v1/events/org/#{venmail_org_id}"
 
       default_endpoint = HTTPEndpoint.where(
         name: "DefaultEndpoint",
         server_id: @server.id
       ).first
 
-      unless default_endpoint
+      if default_endpoint.nil?
         default_endpoint = HTTPEndpoint.new(
           name: "DefaultEndpoint",
           server_id: @server.id,
-          url: params.webhook || "#{base_url}/api/v1/mails/org/#{@server.id}",
+          url: endpoint_url,
           timeout: 5,
           encoding: 'BodyAsJSON', # Set encoding
           format: 'Hash', # Set format
@@ -60,6 +76,10 @@ controller :server do
         if not default_endpoint.save
           error "Could not save server information #{default_endpoint.errors.full_messages}", 422
         end
+      elsif default_endpoint.url != endpoint_url
+        unless default_endpoint.update(url: endpoint_url)
+          error "Could not update endpoint information #{default_endpoint.errors.full_messages}", 422
+        end
       end
 
       default_event_hook = Webhook.where(
@@ -67,17 +87,22 @@ controller :server do
         server_id: @server.id
       ).first
 
-      unless default_event_hook
+      if default_event_hook.nil?
         default_event_hook = Webhook.new(
           name: "DefaultEventHook",
           server_id: @server.id,
-          url: params.event_hook || "#{base_url}/api/v1/events/org/#{@server.id}",
+          url: event_hook_url,
           enabled: true,
           all_events: false,
           events: ['MessageDelayed', 'MessageDeliveryFailed', 'MessageHeld', 'MessageBounced']
         )
         if not default_event_hook.save
           error "Could not save server information #{default_event_hook.errors.full_messages}", 422
+        end
+      elsif default_event_hook.url != event_hook_url
+        default_event_hook.url = event_hook_url
+        if not default_event_hook.save
+          error "Could not update webhook information #{default_event_hook.errors.full_messages}", 422
         end
       end
       
