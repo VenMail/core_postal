@@ -5,6 +5,7 @@ describe OutgoingMessagePrototype do
   it "should create a new message" do
     with_global_server do |server|
       domain = create(:domain, :owner => server)
+      Route.create!(:server => server, :domain => domain, :name => 'test', :mode => 'Accept', :spam_mode => 'Mark')
       prototype = OutgoingMessagePrototype.new(server, '127.0.0.1', 'TestSuite', {
         :from => "test@#{domain.name}",
         :to => "test@example.com",
