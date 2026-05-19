@@ -42,12 +42,9 @@ module Postal
         request['Queue-Id'] = message.token
 
         if scope == :outgoing
-          request['User'] = ''
-          # We don't actually know the IP but an empty input here will
-          # still trigger rspamd to treat this as an outbound email
-          # and disable certain checks.
-          # https://rspamd.com/doc/tutorials/scanning_outbound.html
-          request['Ip'] = ''
+          request['User'] = message.credential_id ? "credential:#{message.credential_id}" : "domain:#{message.domain_id}"
+          sender_ip = message.sender_ip
+          request['Ip'] = sender_ip.to_s if sender_ip.present?
         end
 
         response = nil

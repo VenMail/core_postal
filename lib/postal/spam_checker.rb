@@ -7,6 +7,8 @@ module Postal
     MAX_EMAIL_SIZE = 1_000_000  # 1MB
     MAX_SUBJECT_SIZE = 10_000   # 10KB
     MAX_BODY_SIZE = 500_000     # 500KB
+    HIGH_CONFIDENCE_SPAM_SCORE = 18.0
+    MAX_SPAM_SCORE = 50.0
     
     TRUSTED_DOMAINS = [
     'googlemail.com',
@@ -684,6 +686,35 @@ module Postal
       'contact for more information',
       'interested in earning'
     ].freeze
+
+    LEGAL_BENEFICIARY_SCAM_TERMS = {
+      estate: [
+        /\bbeneficiar(?:y|ies)\b/i,
+        /\bdeceased\b/i,
+        /\bestate\b/i,
+        /\bprobate\b/i,
+        /\bnext\s+of\s+kin\b/i,
+        /\binherit(?:ance|ed)?\b/i,
+        /\bentitlement\b/i,
+        /\basset\s+distribution\b/i
+      ],
+      authority: [
+        /\blegal\s+advisou?r\b/i,
+        /\bsolicitors?\b/i,
+        /\battorney[-\s]client\b/i,
+        /\bsenior\s+partner\b/i,
+        /\bconfidential\b/i,
+        /\bgdpr\b/i
+      ],
+      action: [
+        /\bconfirm\s+your\s+relationship\b/i,
+        /\bdeclare\s+your\s+interest\b/i,
+        /\bpursuing\s+entitlement\b/i,
+        /\bfailure\s+to\s+respond\b/i,
+        /\breply\s+to\b/i,
+        /\bby\s+\d{4}-\d{2}-\d{2}\b/i
+      ]
+    }.freeze
     
     # Server context patterns - helps detect when email content doesn't match server purpose
     SERVER_CONTEXT_KEYWORDS = {
@@ -832,10 +863,11 @@ module Postal
         0
       end
       
-      def check_job_scam_patterns(subject, body_text)
+      def check_job_scam_patterns(subject, body_text, sender_email = nil)
         return 0 unless subject || body_text
         
         text = (subject.to_s + ' ' + body_text.to_s).downcase
+        sender_domain = extract_domain_from_email(sender_email)
         
         # Count job scam phrases
         job_phrase_count = JOB_SCAM_PHRASES.sum do |phrase|
@@ -857,8 +889,12 @@ module Postal
           score += 4
         end
         
-        # "Send email to" or "contact" with external email
-        if text.match?(/(?:send|email|contact).*(?:to|at).*@(?!#{Regexp.escape(extract_domain_from_email($sender_email) || '')})/i)
+        # "Send email to" or "contact" with an external email address
+        external_contact = sender_domain && text.scan(EMAIL_REGEX).any? do |email|
+          external_domain = extract_domain_from_email(email)
+          external_domain && external_domain != sender_domain
+        end
+        if external_contact
           log "Job scam: External contact email detected"
           score += 5
         end
@@ -873,6 +909,25 @@ module Postal
         end
         
         log "Job scam patterns detected: #{job_phrase_count} phrases, score: #{score}" if score > 0
+        score
+      end
+
+      def check_legal_beneficiary_scam_patterns(subject, body_text, reply_to_mismatch_score = 0)
+        return 0 unless subject || body_text
+
+        text = (subject.to_s + ' ' + body_text.to_s).downcase
+        hits = LEGAL_BENEFICIARY_SCAM_TERMS.each_with_object({}) do |(group, patterns), memo|
+          memo[group] = patterns.count { |pattern| text.match?(pattern) }
+        end
+
+        return 0 unless hits[:estate].positive? && hits[:authority].positive? && hits[:action].positive?
+
+        score = 8
+        score += [hits.values.sum, 6].min
+        score += 4 if reply_to_mismatch_score.to_f.positive?
+        score += 3 if text.match?(/\b\d{4}-\d{2}-\d{2}\b/)
+
+        log "Legal beneficiary scam detected: #{hits.inspect}, score: #{score}"
         score
       end
       
@@ -1372,7 +1427,8 @@ module Postal
         
         # Enhanced spam detection for compromised accounts
         reply_to_mismatch_score = check_reply_to_mismatch(headers, sender_email)
-        job_scam_score = check_job_scam_patterns(subject, body_str)
+        job_scam_score = check_job_scam_patterns(subject, body_str, sender_email)
+        legal_beneficiary_scam_score = check_legal_beneficiary_scam_patterns(subject, body_str, reply_to_mismatch_score)
         context_mismatch_score = check_server_context_mismatch(from_domain, subject, body_str)
         external_contact_score = check_external_contact_redirection(body_str, sender_email)
 
@@ -1404,6 +1460,7 @@ module Postal
         log "greeting_urgency_score: #{greeting_urgency_score}"
         log "reply_to_mismatch_score: #{reply_to_mismatch_score}"
         log "job_scam_score: #{job_scam_score}"
+        log "legal_beneficiary_scam_score: #{legal_beneficiary_scam_score}"
         log "context_mismatch_score: #{context_mismatch_score}"
         log "external_contact_score: #{external_contact_score}"
         log "bad_links: #{bad_links}"
@@ -1551,6 +1608,11 @@ module Postal
           score += job_scam_score
           log "Job scam pattern penalty: +#{job_scam_score}"
         end
+
+        if legal_beneficiary_scam_score > 0
+          score += legal_beneficiary_scam_score
+          log "Legal beneficiary scam penalty: +#{legal_beneficiary_scam_score}"
+        end
         
         if context_mismatch_score > 0
           score += context_mismatch_score
@@ -1599,7 +1661,7 @@ module Postal
           log "Newsletter reduction factor: #{reduction_factor}, score after: #{score}"
         end
         
-        final_score = [[score, 1].max, 20].min
+        final_score = [[score, 1].max, MAX_SPAM_SCORE].min
         log "=== FINAL SCORE CALCULATION ==="
         log "Base score: #{score}"
         log "Final score (clamped): #{final_score}"

@@ -24,11 +24,10 @@ module Postal
 
         return unless spam_score
 
-        if spam_score > 20
-          inspection.spam_checks << SpamCheck.new("V_SPAM", spam_score, "Message classified as spam")
-        elsif spam_score > 5
-          adjusted_score = spam_score / 2.0
-          inspection.spam_checks << SpamCheck.new("V_SPAM", adjusted_score, "Venmail pre-classifier spam score")
+        if spam_score >= Postal::SpamChecker::HIGH_CONFIDENCE_SPAM_SCORE
+          inspection.spam_checks << SpamCheck.new("V_SPAM", spam_score, "Message classified as high-confidence spam")
+        elsif spam_score >= 5
+          inspection.spam_checks << SpamCheck.new("V_SPAM", spam_score, "Venmail pre-classifier spam score")
         end
       rescue => e
         logger.error "Error running internal spam checker: #{e.class} (#{e.message})"

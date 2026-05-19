@@ -54,4 +54,22 @@ describe Server do
     end
   end
 
+  context "sender authorization" do
+    let(:org) { create(:organization) }
+    let(:server) { create(:server, organization: org) }
+    let(:domain) { create(:domain, owner: server, name: 'bammby.com') }
+
+    it "allows exact route sender addresses" do
+      Route.create!(server: server, domain: domain, name: 'support', mode: 'Accept', spam_mode: 'Mark')
+
+      expect(server.sender_address_authorized?('Support <support@bammby.com>')).to be true
+    end
+
+    it "does not treat wildcard routes as proof that a sender address exists" do
+      Route.create!(server: server, domain: domain, name: '*', mode: 'Accept', spam_mode: 'Mark')
+
+      expect(server.sender_address_authorized?('alex@bammby.com')).to be false
+    end
+  end
+
 end

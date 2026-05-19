@@ -1,4 +1,5 @@
 require 'resolv'
+require 'ipaddr'
 require 'nifty/utils/random_string'
 require 'digest'
 require 'unix_crypt'
@@ -19,7 +20,7 @@ module Postal
 
       def initialize(ip_address)
         @logging_enabled = true
-        @ip_address = ip_address
+        @ip_address = normalize_client_ip(ip_address)
         if @ip_address
           # Check if IP is globally banned immediately on connection
           if GlobalSuppression.ip_banned?(@ip_address)
@@ -130,10 +131,16 @@ module Postal
 
       def proxy(data)
         if m = data.match(/\APROXY (.+) (.+) (.+) (.+) (.+)\z/)
-          @ip_address = m[2]
+          @ip_address = normalize_client_ip(m[2])
           check_ip_address
           @state = :welcome
           log "\e[35m   Client identified as #{@ip_address}\e[0m"
+          if @ip_address && GlobalSuppression.ip_banned?(@ip_address)
+            log "\e[31m   REJECT: PROXY connection from globally banned IP #{@ip_address}\e[0m"
+            @finished = true
+            @banned = true
+            return '550 Your IP address has been banned'
+          end
           "220 #{Postal.config.dns.smtp_server_hostname} Venmail Core/#{id}"
         else
           @finished = true
@@ -243,6 +250,8 @@ module Postal
         
         # Check if the provided key (password) is a valid credential key
         if @credential = Credential.where(type: 'SMTP', key: password).first
+          @domain = nil
+          @authenticated_user_email = nil
           if @credential.hold?
             log "\e[33m   WARN: AUTH attempt with held credential (#{@credential.id})\e[0m"
             return '535 Invalid credential'
@@ -263,6 +272,9 @@ module Postal
       end
 
       def valid_user_authentication?(email, input_password)
+        email = normalized_email_address(email)
+        return false unless email
+
         # Extract domain from email
         domain = email.split('@').last&.downcase
         return false unless domain && domain.include?(".")
@@ -302,8 +314,10 @@ module Postal
         if !result
           log "\e[33m   WARN: AUTH failure for #{email}\e[0m"
         else
+          @credential = nil
           @domain = dm
           @server = server # Store server reference for later use
+          @authenticated_user_email = email
           server.message_db.mail_user.update_login(email)
         end
 
@@ -333,6 +347,8 @@ module Postal
             next unless password == correct_response
 
             @credential = credential
+            @domain = nil
+            @authenticated_user_email = nil
             @credential.use
             grant = "235 Granted for #{credential.server.organization.permalink}/#{credential.server.permalink}"
             break
@@ -352,6 +368,7 @@ module Postal
 
       def mail_from(data)
         return '503 EHLO/HELO first please' unless in_state(:welcomed, :mail_from_received)
+        return '550 Your IP address has been banned' if client_ip_banned?('MAIL FROM')
 
         @state = :mail_from_received
         transaction_reset
@@ -555,10 +572,11 @@ module Postal
             
           else
             # Original IP authentication attempt...
+            client_ip = IPAddr.new(@ip_address) rescue nil
             @credential = Credential.where(type: 'SMTP-IP').all.sort_by { |c|
               c.ipaddr&.prefix || 0
             }.reverse.find { |credential|
-              credential.ipaddr.include?(@ip_address)
+              client_ip && credential.ipaddr&.include?(client_ip)
             }          
             if @credential
               if @credential.hold?
@@ -569,33 +587,8 @@ module Postal
                 rcpt_to(data)
               end
             else
-              parts = @mail_from.rpartition('@')
-              domain = parts[2]&.downcase.presence
-              dm = Domain.includes(:owner).where('LOWER(domains.name) = ?', domain).first if domain
-              if !dm
-                parts = @mail_from.rpartition('@nia.')
-                domain = parts[2]&.downcase.presence
-                dm = Domain.includes(:owner).where('LOWER(domains.name) = ?', domain).first if domain
-              end
-              log "\e[33m   WARN: Failed to find domain #{@mail_from}\e[0m" unless dm
-              if dm && (server = dm.owner)
-                @credential = Credential.where(server_id: server.id).first
-                if @credential
-                  if @credential.hold?
-                    log "\e[33m   WARN: SMTP-IP inferred auth blocked for held credential (#{@credential.id})\e[0m"
-                    '535 Invalid credential'
-                  else
-                    @credential.use
-                    rcpt_to(data)
-                  end
-                else
-                  log "No credential found for server #{server.id}"
-                  '530 Authentication required'
-                end
-              else
-                log "Domain missing or no associated server"
-                '530 Authentication required'
-              end
+              log "No SMTP authentication or SMTP-IP credential matched #{@ip_address}"
+              '530 Authentication required'
             end
           end
 
@@ -607,6 +600,7 @@ module Postal
 
       def data(_data)
         return '503 HELO/EHLO, MAIL FROM and RCPT TO before sending data' unless in_state(:rcpt_to_received)
+        return '550 Your IP address has been banned' if client_ip_banned?('DATA')
 
         @data = ''.force_encoding('BINARY')
         @headers = {}
@@ -670,6 +664,12 @@ module Postal
       end
 
       def finished
+        if client_ip_banned?('DATA completion')
+          transaction_reset
+          @state = :welcomed
+          return '550 Your IP address has been banned'
+        end
+
         if @data.bytesize > Postal.config.smtp_server.max_message_size.megabytes.to_i
           transaction_reset
           @state = :welcomed
@@ -720,7 +720,7 @@ module Postal
           # Extract domain from From header
           from_domain = nil
           begin
-            from_email = from_header.match(/<([^>]+@[^>]+)>/)&.[](1) || from_header.scan(/\S+@\S+/).first
+            from_email = normalized_email_address(from_header)
             from_domain = from_email&.split('@')&.last&.downcase
           rescue StandardError => e
             log "Error parsing From header: #{e.message}"
@@ -735,17 +735,30 @@ module Postal
 
           # Get the authenticated domain
           authenticated_domain = nil
+          authenticated_sender = nil
           if @domain
             authenticated_domain = @domain.name
           else
-            authenticated_domain = @credential.server.find_authenticated_domain_from_headers(@headers)&.name
+            authenticated_sender = @credential.server.authenticated_sender_from_headers(@headers)
+            authenticated_domain = authenticated_sender&.[](:domain)&.name
           end
 
           # Log what we found for debugging
           log "Debug: From domain: #{from_domain}, Authenticated domain: #{authenticated_domain}"
 
+          if @authenticated_user_email
+            mail_from_email = normalized_email_address(@mail_from)
+            if from_email != @authenticated_user_email || mail_from_email != @authenticated_user_email
+              log "Rejected: authenticated mailbox #{@authenticated_user_email} attempted to send as From=#{from_email} MAIL FROM=#{mail_from_email}"
+              transaction_reset
+              @state = :welcomed
+              return '550 From address must match authenticated mailbox'
+            end
+          end
+
           # Skip this check for internal/bounce messages
-          if !@recipients.any? {|r| r[0] == :bounce} && authenticated_domain && from_domain != authenticated_domain
+          authenticated_via_sender_header = authenticated_sender && authenticated_sender[:header] == 'sender'
+          if !@recipients.any? {|r| r[0] == :bounce} && authenticated_domain && from_domain != authenticated_domain && !authenticated_via_sender_header
             log "Rejected: From domain #{from_domain} does not match authenticated domain #{authenticated_domain}"
             transaction_reset
             @state = :welcomed
@@ -758,26 +771,8 @@ module Postal
 
         if @credential
           authenticated_server = @credential.server
-          authenticated_domain = authenticated_server.find_authenticated_domain_from_headers(@headers)
-          
-          # If no authenticated domain but block_outgoing_without_verified_route is enabled,
-          # extract domain from From header for later validation in UnqueueMessageJob
-          if authenticated_domain.nil? && @credential.server.block_outgoing_without_verified_route?
-            from_header = @headers['from']&.first
-            if from_header
-              begin
-                from_email = from_header.match(/<([^>]+@[^>]+)>/)&.[](1) || from_header.scan(/\S+@\S+/).first
-                from_domain_name = from_email&.split('@')&.last&.downcase
-                if from_domain_name
-                  # Look up the domain in the database to set proper domain_id
-                  authenticated_domain = Domain.where(name: from_domain_name).first
-                  log "Found domain #{from_domain_name} for route validation: #{authenticated_domain ? 'yes' : 'no'}"
-                end
-              rescue StandardError => e
-                log "Error extracting domain from From header for route validation: #{e.message}"
-              end
-            end
-          end
+          authenticated_sender = authenticated_server.authenticated_sender_from_headers(@headers)
+          authenticated_domain = authenticated_sender&.[](:domain)
           
           # If still no authenticated domain after all attempts, return error
           if authenticated_domain.nil?
@@ -869,6 +864,27 @@ module Postal
       # Rate limiter helpers
       def auth_limiter_window
         (Postal.config.general.compromise.hour_window rescue 3600).to_i
+      end
+
+      def normalize_client_ip(ip_address)
+        GlobalSuppression.normalize_ip_address_string(ip_address) || ip_address
+      end
+
+      def normalized_email_address(address)
+        stripped = Postal::Helpers.strip_name_from_address(address).to_s.strip
+        email = stripped[/[A-Z0-9._%+\-']+@[A-Z0-9.\-]+\.[A-Z]{2,}/i] || stripped
+        email = email.to_s.downcase.gsub(/\A['"]+|['"]+\z/, '')
+        return nil unless email =~ /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
+
+        email
+      end
+
+      def client_ip_banned?(stage)
+        return false unless @ip_address && GlobalSuppression.ip_banned?(@ip_address)
+
+        log "\e[31m   REJECT: #{stage} from globally banned IP #{@ip_address}\e[0m"
+        @banned = true
+        true
       end
 
       def auth_limiter_threshold

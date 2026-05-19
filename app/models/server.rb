@@ -42,6 +42,7 @@
 class Server < ApplicationRecord
 
   RESERVED_PERMALINKS = ['new', 'all', 'search', 'stats', 'edit', 'manage', 'delete', 'destroy', 'remove']
+  EMAIL_ADDRESS_REGEX = /[A-Z0-9._%+\-']+@[A-Z0-9.\-]+\.[A-Z]{2,}/i.freeze
 
   include HasUUID
   include HasSoftDestroy
@@ -240,39 +241,85 @@ class Server < ApplicationRecord
   end
 
   def authenticated_domain_for_address(address)
+    address = normalize_email_address(address)
     return nil if address.blank?
-    address = Postal::Helpers.strip_name_from_address(address)
+
     uname, domain_name = address.split('@', 2)
-    return nil unless uname
-    return nil unless domain_name
     uname, _ = uname.split('+', 2)
 
     # Check the server's domain
-    if domain = Domain.verified.order(:owner_type => :desc).where("(owner_type = 'Organization' AND owner_id = ?) OR (owner_type = 'Server' AND owner_id = ?)", self.organization_id, self.id).where(:name => domain_name).first
+    domain_scope = Domain.verified.where(:outgoing => true)
+    domain_scope = domain_scope.where("(owner_type = 'Organization' AND owner_id = ?) OR (owner_type = 'Server' AND owner_id = ?)", self.organization_id, self.id)
+    if domain = domain_scope.order(:owner_type => :desc).where("LOWER(name) = ?", domain_name).first
       return domain
     end
 
-    if any_domain = self.domains.verified.where(:use_for_any => true).order(:name).first
+    if any_domain = self.domains.verified.where(:outgoing => true, :use_for_any => true).order(:name).first
       return any_domain
     end
   end
 
-  def find_authenticated_domain_from_headers(headers)
+  def normalize_email_address(address)
+    stripped = Postal::Helpers.strip_name_from_address(address).to_s.strip
+    email = stripped[EMAIL_ADDRESS_REGEX] || stripped
+    email = email.to_s.downcase.gsub(/\A['"]+|['"]+\z/, '')
+    return nil unless email =~ /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
+
+    email
+  end
+
+  def sender_address_authorized?(address, domain = nil)
+    address = normalize_email_address(address)
+    return false if address.blank?
+
+    local_part, domain_name = address.split('@', 2)
+    local_part, = local_part.split('+', 2)
+    domain ||= authenticated_domain_for_address(address)
+    return false unless domain
+    return false unless domain.name.to_s.casecmp(domain_name).zero?
+
+    exact_route_exists?(local_part, domain_name) || mail_user_exists?(address)
+  end
+
+  def exact_route_exists?(local_part, domain_name)
+    return false if local_part.blank? || domain_name.blank?
+
+    routes.joins(:domain)
+          .where("LOWER(routes.name) = ? AND LOWER(domains.name) = ?", local_part.downcase, domain_name.downcase)
+          .where.not(:name => ['*', '__returnpath__'])
+          .exists?
+  end
+
+  def mail_user_exists?(address)
+    user = message_db.mail_user.find(address)
+    return false unless user
+
+    active = user['active']
+    active.nil? || active == true || active.to_s == '1'
+  rescue => e
+    Rails.logger.warn "Sender address lookup failed for #{address}: #{e.class}: #{e.message}" if defined?(Rails)
+    false
+  end
+
+  def authenticated_sender_from_headers(headers)
     header_to_check = ['from']
     header_to_check << 'sender' if self.allow_sender?
     header_to_check.each do |header_name|
-      if headers[header_name].is_a?(Array)
-        values = headers[header_name]
-      else
-        values = [headers[header_name].to_s]
-      end
+      values = headers[header_name].is_a?(Array) ? headers[header_name] : [headers[header_name].to_s]
+      addresses = values.map { |value| normalize_email_address(value) }.compact
+      next unless addresses.size == values.size
 
-      authenticated_domains = values.map { |v| authenticated_domain_for_address(v) }.compact
-      if authenticated_domains.size == values.size
-        return authenticated_domains.first
-      end
+      authenticated = addresses.map do |address|
+        domain = authenticated_domain_for_address(address)
+        sender_address_authorized?(address, domain) ? { :domain => domain, :address => address, :header => header_name } : nil
+      end.compact
+      return authenticated.first if authenticated.size == values.size
     end
     nil
+  end
+
+  def find_authenticated_domain_from_headers(headers)
+    authenticated_sender_from_headers(headers)&.[](:domain)
   end
 
   def suspend(reason)

@@ -1,3 +1,5 @@
+require 'ipaddr'
+
 class ReputationMonitorJob < Postal::Job
   # Optimized reputation monitoring with single-pass message processing
   # Eliminates redundant scans and N+1 queries for millions of messages
@@ -496,20 +498,22 @@ class ReputationMonitorJob < Postal::Job
         }
         
         messages = server.message_db.select('messages', query_params)
+        ip_groups = Hash.new { |hash, key| hash[key] = [] }
         
-        # Group by IP address
-        ip_groups = messages.group_by { |m| m['ip_address'] }
-        
-        ip_groups.each do |ip, msgs|
-          next if ip.blank? || ip == '127.0.0.1'
-          next if WHITELISTED_IPS.include?(ip)  # Skip whitelisted IPs
-          
-          spam_scores = msgs.map { |m| m['spam_score'].to_f }
+        messages.each do |record|
+          message = Postal::MessageDB::Message.new(server.message_db, record)
+          ip = GlobalSuppression.normalize_ip_address_string(message.sender_ip)
+          next if ip.blank? || whitelisted_ip?(ip)
+
+          ip_groups[ip] << message.spam_score.to_f
+        end
+
+        ip_groups.each do |ip, spam_scores|
           avg_score = spam_scores.empty? ? 0.0 : spam_scores.sum / spam_scores.size
           
           suspicious_ips << {
             'ip_address' => ip,
-            'spam_count' => msgs.size,
+            'spam_count' => spam_scores.size,
             'avg_score' => avg_score,
             'server_id' => server.id
           }
@@ -522,67 +526,64 @@ class ReputationMonitorJob < Postal::Job
     suspicious_ips
   end
   
-  def block_ip_address(ip_address, spam_count, avg_score)
-    # Validate IP format
-    unless valid_ip?(ip_address)
+  def block_ip_address(ip_address, spam_count, avg_score, reason: nil)
+    normalized_ip = GlobalSuppression.normalize_ip_address_string(ip_address)
+
+    unless valid_ip?(normalized_ip)
       Rails.logger.error "ReputationMonitorJob: Invalid IP address format: #{ip_address}"
       return
     end
     
     # Check if IP is whitelisted
-    if WHITELISTED_IPS.include?(ip_address)
-      Rails.logger.info "ReputationMonitorJob: Skipping whitelisted IP #{ip_address}"
+    if whitelisted_ip?(normalized_ip)
+      Rails.logger.info "ReputationMonitorJob: Skipping whitelisted IP #{normalized_ip}"
       return
     end
     
     # Check if already blocked
-    existing_block = GlobalSuppression.where(
-      type: 'ip_block',
-      email_address: ip_address
-    ).first
+    return if GlobalSuppression.ip_banned?(normalized_ip)
     
-    return if existing_block
-    
-    Rails.logger.warn "ReputationMonitorJob: BLOCKING IP #{ip_address} - #{spam_count} spam messages, avg score: #{avg_score.round(2)}"
+    reason ||= "Auto-blocked: #{spam_count} spam messages with avg score #{avg_score.round(2)}"
+    Rails.logger.warn "ReputationMonitorJob: BLOCKING IP #{normalized_ip} - #{reason}"
     
     # Use transaction to ensure consistency
     GlobalSuppression.transaction do
       # Add to global suppression list
-      GlobalSuppression.create!(
-        type: 'ip_block',
-        email_address: ip_address,
-        reason: "Auto-blocked: #{spam_count} spam messages with avg score #{avg_score.round(2)}",
-        created_at: Time.now
-      )
+      GlobalSuppression.ban_ip(normalized_ip, reason: reason)
       
       # Execute firewall commands
-      execute_firewall_block(ip_address)
+      execute_firewall_block(normalized_ip)
     end
     
     # Trigger webhook for monitoring (outside transaction)
-    notify_ip_blocked(ip_address, spam_count, avg_score)
+    notify_ip_blocked(normalized_ip, spam_count, avg_score)
     
   rescue => e
     Rails.logger.error "ReputationMonitorJob: IP blocking failed for #{ip_address}: #{e.message}"
   end
   
   def execute_firewall_block(ip_address)
+    unless ip_address.to_s.include?('.')
+      Rails.logger.info "ReputationMonitorJob: Skipping firewall command for non-IPv4 address #{ip_address}"
+      return true
+    end
+
     # Add firewalld rule
-    firewall_result = system("sudo firewall-cmd --permanent --add-rich-rule=\"rule family='ipv4' source address='#{ip_address}' reject\" 2>&1")
+    firewall_result = system('sudo', 'firewall-cmd', '--permanent', "--add-rich-rule=rule family='ipv4' source address='#{ip_address}' reject")
     unless firewall_result
       Rails.logger.error "ReputationMonitorJob: Failed to add firewalld rule for #{ip_address}"
       return false
     end
     
-    reload_result = system("sudo firewall-cmd --reload 2>&1")
+    reload_result = system('sudo', 'firewall-cmd', '--reload')
     unless reload_result
       Rails.logger.error "ReputationMonitorJob: Failed to reload firewalld for #{ip_address}"
       return false
     end
     
     # Add iptables rule
-    iptables_input = system("sudo iptables -I INPUT -s #{ip_address} -j DROP 2>&1")
-    iptables_output = system("sudo iptables -I OUTPUT -d #{ip_address} -j DROP 2>&1")
+    iptables_input = system('sudo', 'iptables', '-I', 'INPUT', '-s', ip_address, '-j', 'DROP')
+    iptables_output = system('sudo', 'iptables', '-I', 'OUTPUT', '-d', ip_address, '-j', 'DROP')
     
     unless iptables_input && iptables_output
       Rails.logger.error "ReputationMonitorJob: Failed to add iptables rules for #{ip_address}"
@@ -590,8 +591,8 @@ class ReputationMonitorJob < Postal::Job
     end
     
     # Kill active connections (ss command may not exist, so ignore errors)
-    system("sudo ss -K dst #{ip_address} 2>/dev/null")
-    system("sudo ss -K src #{ip_address} 2>/dev/null")
+    system('sudo', 'ss', '-K', 'dst', ip_address)
+    system('sudo', 'ss', '-K', 'src', ip_address)
     
     Rails.logger.info "ReputationMonitorJob: Firewall rules applied for #{ip_address}"
     true
@@ -613,14 +614,15 @@ class ReputationMonitorJob < Postal::Job
         
         messages = server.message_db.select('messages', query_params)
         
-        # Check for Reply-To mismatches
-        mismatch_ips = {}
+        mismatch_ips = Hash.new { |hash, key| hash[key] = { count: 0, scores: [] } }
         
-        messages.each do |msg|
-          next unless msg['raw_headers']
+        messages.each do |record|
+          message = Postal::MessageDB::Message.new(server.message_db, record)
+          raw_headers = message.raw_headers
+          next if raw_headers.blank?
           
-          reply_to = extract_reply_to(msg['raw_headers'])
-          from_email = extract_from_email(msg['raw_headers'])
+          reply_to = extract_reply_to(raw_headers)
+          from_email = extract_from_email(raw_headers)
           
           next unless reply_to && from_email
           
@@ -628,18 +630,22 @@ class ReputationMonitorJob < Postal::Job
           from_domain = extract_domain(from_email)
           
           if reply_to_domain && from_domain && reply_to_domain != from_domain
-            ip = msg['ip_address']
+            ip = GlobalSuppression.normalize_ip_address_string(message.sender_ip)
             next if ip.blank?
             
-            mismatch_ips[ip] ||= 0
-            mismatch_ips[ip] += 1
+            mismatch_ips[ip][:count] += 1
+            mismatch_ips[ip][:scores] << message.spam_score.to_f
           end
         end
         
         # Log IPs with multiple Reply-To mismatches
-        mismatch_ips.each do |ip, count|
+        mismatch_ips.each do |ip, data|
+          count = data[:count]
           if count >= REPLY_TO_MISMATCH_THRESHOLD
+            avg_score = data[:scores].empty? ? 0.0 : data[:scores].sum / data[:scores].size
+            reason = "Auto-blocked: #{count} Reply-To domain mismatches in #{MONITORING_WINDOW_MINUTES} minutes"
             Rails.logger.warn "ReputationMonitorJob: IP #{ip} has #{count} Reply-To mismatches - possible compromise"
+            block_ip_address(ip, count, avg_score, reason: reason)
           end
         end
         
@@ -683,14 +689,17 @@ class ReputationMonitorJob < Postal::Job
   
   # Helper method to validate IP address format
   def valid_ip?(ip)
-    return false if ip.blank?
-    return true if ip == '::1'  # Allow IPv6 localhost
-    
-    # Validate IPv4 format
-    return false unless ip.match?(IPV4_REGEX)
-    
-    # Check each octet is valid (0-255)
-    octets = ip.split('.')
-    octets.all? { |octet| octet.to_i.between?(0, 255) }
+    normalized_ip = GlobalSuppression.normalize_ip_address_string(ip)
+    return false if normalized_ip.blank? || normalized_ip.include?('/')
+
+    IPAddr.new(normalized_ip)
+    true
+  rescue IPAddr::InvalidAddressError
+    false
+  end
+
+  def whitelisted_ip?(ip)
+    normalized_ip = GlobalSuppression.normalize_ip_address_string(ip)
+    WHITELISTED_IPS.any? { |whitelisted| GlobalSuppression.normalize_ip_address_string(whitelisted) == normalized_ip }
   end
 end

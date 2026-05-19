@@ -80,7 +80,8 @@ controller :send do
       # Parse through mail to get the from/sender headers
       mail = Mail.new(raw_message.split("\r\n\r\n", 2).first)
       from_headers = {'from' => mail.from, 'sender' => mail.sender}
-      authenticated_domain = identity.server.find_authenticated_domain_from_headers(from_headers)
+      authenticated_sender = identity.server.authenticated_sender_from_headers(from_headers)
+      authenticated_domain = authenticated_sender&.[](:domain)
 
       # If we're not authenticated, don't continue
       if authenticated_domain.nil?

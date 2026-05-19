@@ -32,7 +32,9 @@ module Postal
           end
         end
 
-        checks = spam_checks.reject { |s| EXCLUSIONS[inspection.scope].include?(s.code) }
+        checks = spam_checks.reject do |check|
+          Array(EXCLUSIONS[inspection.scope]).any? { |exclusion| exclusion === check.code }
+        end
         checks.each do |check|
           inspection.spam_checks << check
         end

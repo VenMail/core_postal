@@ -10,7 +10,7 @@ module Postal
       COMPROMISE_SOCIAL_SECURITY_SPOOF
     ].freeze
 
-    DEFAULT_STRONG_CODES = %w[COMPROMISE_BITCOIN COMPROMISE_BLACKMAIL].freeze
+    DEFAULT_STRONG_CODES = %w[COMPROMISE_BITCOIN COMPROMISE_BLACKMAIL COMPROMISE_LEGAL_BENEFICIARY].freeze
 
     STRONG_CODES = DEFAULT_STRONG_CODES
     ALL_CODES = (DEFAULT_STRONG_CODES + EXTRA_CODES).freeze
@@ -129,6 +129,11 @@ module Postal
         end
       end
 
+      if legal_beneficiary_scam?(text)
+        codes << 'COMPROMISE_LEGAL_BENEFICIARY'
+        descs << 'Legal/estate beneficiary advance-fee scam pattern'
+      end
+
       blackmail_phrases = (Postal.config.general.compromise.blackmail_phrases rescue nil) || [
         'blackmail', 'i hacked', 'i have hacked', 'recorded you', 'send to (all )?your contacts?'
       ]
@@ -199,6 +204,15 @@ module Postal
       raw = address.to_s
       domain = raw[/@([^>\s;]+)/, 1] || raw.split('@').last
       domain.to_s.downcase.gsub(/[^\w\.-]/, '')
+    end
+
+    def legal_beneficiary_scam?(text)
+      downcased = text.to_s.downcase
+      estate_hit = downcased =~ /\b(beneficiar(?:y|ies)|deceased|estate|probate|next\s+of\s+kin|inheritance|entitlement|asset\s+distribution)\b/
+      authority_hit = downcased =~ /\b(legal\s+advisou?r|solicitors?|attorney[-\s]client|senior\s+partner|confidential|gdpr)\b/
+      action_hit = downcased =~ /\b(confirm\s+your\s+relationship|declare\s+your\s+interest|pursuing\s+entitlement|failure\s+to\s+respond|reply\s+to)\b/
+
+      estate_hit && authority_hit && action_hit
     end
 
     def authoritative_government_domain?(domain)

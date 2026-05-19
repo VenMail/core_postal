@@ -30,9 +30,11 @@ general:
   compromise:
     hour_window: 3600
     suspicious_threshold: 5
+    high_spam_hold_threshold: 3
     strong_codes:
       - COMPROMISE_BITCOIN
       - COMPROMISE_BLACKMAIL
+      - COMPROMISE_LEGAL_BENEFICIARY
   auth_limiter:
     max_failures: 10
     block_seconds: 900

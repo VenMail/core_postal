@@ -99,4 +99,27 @@ describe Postal::CompromiseDetector do
       expect(result.suspicious?).to be true
     end
   end
+
+  it "flags legal beneficiary advance-fee scam content as strong compromise" do
+    with_global_server do |server|
+      body = <<~BODY
+        Our firm administers the estate of a deceased client in which you may hold a beneficiary interest.
+        Please confirm your relationship to the deceased and declare your interest in pursuing entitlement.
+        Failure to respond may result in asset distribution under probate laws. This communication is confidential under attorney-client privilege and GDPR; please reply to the Legal Advisor's email.
+      BODY
+
+      message = create_plain_text_message(
+        server,
+        body,
+        'victim@example.com',
+        { subject: 'Re: Attn Beneficiary', from: 'alex@bammby.com' }
+      )
+
+      detector = Postal::CompromiseDetector.new
+      result = detector.analyze(message)
+
+      expect(result.codes).to include('COMPROMISE_LEGAL_BENEFICIARY')
+      expect(result.strong?).to be true
+    end
+  end
 end

@@ -58,6 +58,13 @@ class OutgoingMessagePrototype
     end
   end
 
+  def authorized_sender_address?
+    return true if @server.sender_address_authorized?(@from, domain)
+    return true if @server.allow_sender? && @server.sender_address_authorized?(@sender, domain)
+
+    false
+  end
+
   def to_addresses
     @to.is_a?(String) ? @to.to_s.split(/\,\s*/) : @to.to_a
   end
@@ -132,7 +139,7 @@ class OutgoingMessagePrototype
       @errors << "FromAddressMissing"
     end
 
-    if domain.nil?
+    if domain.nil? || !authorized_sender_address?
       @errors << "UnauthenticatedFromAddress"
     end
 

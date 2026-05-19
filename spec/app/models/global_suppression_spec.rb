@@ -53,13 +53,13 @@ RSpec.describe GlobalSuppression, type: :model do
       expect(global_suppression.ip_address).to eq('192.168.1.1')
     end
 
-    it 'converts IP address to lowercase' do
+    it 'normalizes IPv6 address casing' do
       global_suppression = GlobalSuppression.new(
-        ip_address: 'TEST.EXAMPLE.COM',
+        ip_address: '  2001:DB8::1  ',
         reason: 'Test ban'
       )
       global_suppression.valid?
-      expect(global_suppression.ip_address).to eq('test.example.com')
+      expect(global_suppression.ip_address).to eq('2001:db8::1')
     end
   end
 
@@ -162,6 +162,11 @@ RSpec.describe GlobalSuppression, type: :model do
         expect(result).to be_falsey
       end
 
+      it 'normalizes IPv4-mapped IPv6 addresses before creating a ban' do
+        GlobalSuppression.ban_ip('::ffff:204.10.162.167', reason: 'Mapped IP ban')
+        expect(GlobalSuppression.find_by(ip_address: '204.10.162.167')).to be_present
+      end
+
       it 'returns existing ban if IP already banned' do
         GlobalSuppression.ban_ip('192.168.1.1', reason: 'First ban')
         
@@ -203,6 +208,16 @@ RSpec.describe GlobalSuppression, type: :model do
       it 'returns true for banned IP' do
         GlobalSuppression.ban_ip('192.168.1.1', reason: 'Test ban')
         expect(GlobalSuppression.ip_banned?('192.168.1.1')).to be_truthy
+      end
+
+      it 'matches IPv4-mapped IPv6 client addresses against IPv4 bans' do
+        GlobalSuppression.ban_ip('204.10.162.167', reason: 'Test ban')
+        expect(GlobalSuppression.ip_banned?('::ffff:204.10.162.167')).to be_truthy
+      end
+
+      it 'matches CIDR bans' do
+        GlobalSuppression.ban_ip('204.10.162.0/24', reason: 'Network ban')
+        expect(GlobalSuppression.ip_banned?('204.10.162.167')).to be_truthy
       end
 
       it 'returns false for non-banned IP' do
@@ -282,14 +297,15 @@ RSpec.describe GlobalSuppression, type: :model do
         expect(result).to eq('192.168.1.1')
       end
 
-      it 'converts to lowercase' do
-        result = GlobalSuppression.normalize_ip_address_string('TEST.EXAMPLE.COM')
-        expect(result).to eq('test.example.com')
+      it 'normalizes IPv4-mapped IPv6 to native IPv4' do
+        result = GlobalSuppression.normalize_ip_address_string('::ffff:204.10.162.167')
+        expect(result).to eq('204.10.162.167')
       end
 
       it 'handles exceptions gracefully' do
         # This should not raise an exception
         expect { GlobalSuppression.normalize_ip_address_string('invalid') }.not_to raise_error
+        expect(GlobalSuppression.normalize_ip_address_string('invalid')).to be_nil
       end
     end
   end
