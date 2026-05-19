@@ -75,6 +75,13 @@ describe Server do
       expect(server.sender_address_authorized?('alex@bammby.com')).to be false
     end
 
+    it "allows domain senders when the server requires a verified incoming route and the domain has one" do
+      server.update!(block_outgoing_without_verified_route: true)
+      Route.create!(server: server, domain: domain, name: 'support', mode: 'Accept', spam_mode: 'Mark')
+
+      expect(server.sender_address_authorized?('vid-intro-60529@bammby.com')).to be true
+    end
+
     it "counts server routes by domain name for the verified route gate" do
       organization_domain = create(:organization_domain, owner: org, name: 'bammby.com')
       Route.create!(server: server, domain: domain, name: 'support', mode: 'Accept', spam_mode: 'Mark')

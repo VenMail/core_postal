@@ -13,6 +13,7 @@ module Postal
       normalized_address = address.to_s.strip.downcase
       return nil if normalized_address.blank?
 
+      not_found_response = nil
       urls.each do |url|
         response = Postal::HTTP.get(url, params: { alias: normalized_address }, timeout: timeout)
         code = response && response[:code]
@@ -22,14 +23,17 @@ module Postal
         begin
           parsed = JSON.parse(response[:body])
           yield "Available route lookup for #{normalized_address} via #{url}: #{parsed}" if block_given?
-          return parsed
+          return parsed unless parsed.is_a?(Hash) && parsed.key?('found')
+          return parsed if parsed['found']
+
+          not_found_response ||= parsed
         rescue JSON::ParserError => e
           yield "Available route lookup parse failure for #{normalized_address} via #{url}: #{e.message}" if block_given?
           next
         end
       end
 
-      nil
+      not_found_response
     rescue => e
       yield "Available route lookup request failed for #{normalized_address}: #{e.message}" if block_given?
       nil
