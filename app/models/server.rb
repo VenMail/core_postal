@@ -194,8 +194,28 @@ class Server < ApplicationRecord
   end
 
   def has_verified_route_for?(domain)
-    return false if domain.nil?
-    routes.includes(:domain).where(:domains => { :id => domain.id }).exists?
+    domain_name = if domain.respond_to?(:name)
+                    domain.name
+                  else
+                    domain.to_s
+                  end
+    return false if domain_name.blank?
+
+    routes.joins(:domain)
+          .where("LOWER(domains.name) = ?", domain_name.downcase)
+          .exists?
+  end
+
+  def verified_route_available_for_sender?(address, domain = nil)
+    return true if has_verified_route_for?(domain)
+
+    address = normalize_email_address(address)
+    return false if address.blank?
+
+    _local_part, domain_name = address.split('@', 2)
+    return true if has_verified_route_for?(domain_name)
+
+    api_available_sender_address_authorized?(address)
   end
 
   def webhook_hash
@@ -278,7 +298,7 @@ class Server < ApplicationRecord
     return false unless domain
     return false unless domain.name.to_s.casecmp(domain_name).zero?
 
-    exact_route_exists?(local_part, domain_name) || mail_user_exists?(address)
+    exact_route_exists?(local_part, domain_name) || mail_user_exists?(address) || api_available_sender_address_authorized?(address)
   end
 
   def exact_route_exists?(local_part, domain_name)
@@ -299,6 +319,37 @@ class Server < ApplicationRecord
   rescue => e
     Rails.logger.warn "Sender address lookup failed for #{address}: #{e.class}: #{e.message}" if defined?(Rails)
     false
+  end
+
+  def api_available_sender_address_authorized?(address)
+    address = normalize_email_address(address)
+    return false if address.blank?
+
+    @api_available_sender_authorization_cache ||= {}
+    return @api_available_sender_authorization_cache[address] if @api_available_sender_authorization_cache.key?(address)
+
+    response = Postal::AvailableRouteLookup.lookup(address) do |text|
+      Rails.logger.debug(text) if defined?(Rails)
+    end
+
+    authorized = false
+    if response && response['found']
+      main_email = normalize_email_address(response['main_email'])
+      if main_email.present? && main_email != address
+        local_part, domain_name = main_email.split('@', 2)
+        local_part, = local_part.split('+', 2)
+
+        domain = authenticated_domain_for_address(main_email)
+        authorized = domain.present? &&
+                     domain.name.to_s.casecmp(domain_name).zero? &&
+                     (exact_route_exists?(local_part, domain_name) || mail_user_exists?(main_email))
+      end
+    end
+
+    @api_available_sender_authorization_cache[address] = authorized
+  rescue => e
+    Rails.logger.warn "API available sender lookup failed for #{address}: #{e.class}: #{e.message}" if defined?(Rails)
+    @api_available_sender_authorization_cache[address] = false
   end
 
   def authenticated_sender_from_headers(headers)

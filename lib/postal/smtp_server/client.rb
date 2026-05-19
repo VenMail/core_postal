@@ -10,10 +10,6 @@ module Postal
     class Client
       CRAM_MD5_DIGEST = OpenSSL::Digest.new('md5')
       LOG_REDACTION_STRING = '[redacted]'.freeze
-      ALIAS_CHECK_URLS = [
-        'https://m.venmail.io/api/v1/checkalias',
-        'https://app.venmail.io/api/v1/checkalias'
-      ].freeze
       ALIAS_HTTP_TIMEOUT = 5
 
       attr_reader :logging_enabled
@@ -430,24 +426,9 @@ module Postal
       end
 
       def lookup_alias_info(address)
-        ALIAS_CHECK_URLS.each do |url|
-          response = Postal::HTTP.get(url, params: { alias: address }, timeout: ALIAS_HTTP_TIMEOUT)
-          log "Alias lookup for #{address} via #{url}: #{response[:code]}"
-          next unless response && response[:code] == 200 && response[:body].present?
-
-          begin
-            parsed = JSON.parse(response[:body])
-            log "Alias lookup for #{address} via #{url}: #{parsed}"
-            return parsed
-          rescue JSON::ParserError => e
-            log "Alias lookup parse failure for #{address} via #{url}: #{e.message}"
-            next
-          end
+        Postal::AvailableRouteLookup.lookup(address, timeout: ALIAS_HTTP_TIMEOUT) do |text|
+          log text.sub(/\AAvailable route lookup/, 'Alias lookup')
         end
-        nil
-      rescue => e
-        log "Alias lookup request failed for #{address}: #{e.message}"
-        nil
       end
 
       def rcpt_to(data)
@@ -784,7 +765,8 @@ module Postal
 
         has_outgoing_recipients = @recipients.any? { |recipient| recipient[0] == :credential }
         # Only check verified route requirement if the setting is enabled AND we have an authenticated domain
-        if has_outgoing_recipients && authenticated_server && authenticated_server.block_outgoing_without_verified_route? && authenticated_domain && !authenticated_server.has_verified_route_for?(authenticated_domain)
+        authenticated_sender_address = authenticated_sender&.[](:address) || @mail_from
+        if has_outgoing_recipients && authenticated_server && authenticated_server.block_outgoing_without_verified_route? && authenticated_domain && !authenticated_server.verified_route_available_for_sender?(authenticated_sender_address, authenticated_domain)
           log "Outgoing blocked: domain #{authenticated_domain.name} has no verified incoming route on this server (setting enabled)"
           transaction_reset
           @state = :welcomed

@@ -59,6 +59,10 @@ describe Server do
     let(:server) { create(:server, organization: org) }
     let(:domain) { create(:domain, owner: server, name: 'bammby.com') }
 
+    before do
+      allow(Postal::AvailableRouteLookup).to receive(:lookup).and_return(nil)
+    end
+
     it "allows exact route sender addresses" do
       Route.create!(server: server, domain: domain, name: 'support', mode: 'Accept', spam_mode: 'Mark')
 
@@ -69,6 +73,32 @@ describe Server do
       Route.create!(server: server, domain: domain, name: '*', mode: 'Accept', spam_mode: 'Mark')
 
       expect(server.sender_address_authorized?('alex@bammby.com')).to be false
+    end
+
+    it "counts server routes by domain name for the verified route gate" do
+      organization_domain = create(:organization_domain, owner: org, name: 'bammby.com')
+      Route.create!(server: server, domain: domain, name: 'support', mode: 'Accept', spam_mode: 'Mark')
+
+      expect(server.has_verified_route_for?(organization_domain)).to be true
+    end
+
+    it "allows API-available sender aliases that resolve to an authorized native route" do
+      Route.create!(server: server, domain: domain, name: 'support', mode: 'Accept', spam_mode: 'Mark')
+      allow(Postal::AvailableRouteLookup).to receive(:lookup).with('hello@bammby.com').and_return(
+        'found' => true,
+        'main_email' => 'support@bammby.com'
+      )
+
+      expect(server.sender_address_authorized?('hello@bammby.com')).to be true
+    end
+
+    it "rejects API-available sender aliases whose target is not authorized on the server" do
+      allow(Postal::AvailableRouteLookup).to receive(:lookup).with('hello@bammby.com').and_return(
+        'found' => true,
+        'main_email' => 'missing@bammby.com'
+      )
+
+      expect(server.sender_address_authorized?('hello@bammby.com')).to be false
     end
   end
 

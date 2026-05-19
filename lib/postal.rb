@@ -4,6 +4,7 @@ module Postal
 
   eager_autoload do
     autoload :AppLogger
+    autoload :AvailableRouteLookup
     autoload :BounceMessage
     autoload :CompromiseDetector
     autoload :Config
