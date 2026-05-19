@@ -324,6 +324,13 @@
     end
 
     actor_email = current_user&.email_address.presence || current_user&.email_tag || 'unknown-user'
+    redirect_target = if @message.held?
+                        [:held, organization, @server, :messages]
+                      elsif @message.queued_message
+                        [:queue, organization, @server]
+                      else
+                        headers_organization_server_message_path(organization, @server, @message.id)
+                      end
 
     # Add to global suppression list
     unless GlobalSuppression.table_exists?
@@ -332,7 +339,7 @@
     end
 
     if GlobalSuppression.ban_ip(ip, reason: "Manual IP ban from message view by #{actor_email}")
-      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :notice => "IP #{ip} added to global suppression list."
+      redirect_to_with_json redirect_target, :notice => "IP #{ip} added to global suppression list. Matching held and queued messages were deleted."
     else
       redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "Failed to ban IP #{ip}."
     end

@@ -40,6 +40,10 @@ class UnqueueMessageJob < Postal::Job
               next
             end
 
+            if delete_if_sender_ip_banned(queued_message, log_prefix)
+              next
+            end
+
             #
             # If the server is suspended, hold all messages
             #
@@ -450,7 +454,9 @@ class UnqueueMessageJob < Postal::Job
                 queued_message.message.database.statistics.increment_all(Time.now, 'spam')
                 # Use the actual threshold that was applied for the error message
                 outbound_threshold = queued_message.server.outbound_spam_threshold || 18.0
-                lock_credential_or_ip_for_high_spam(queued_message, log_prefix)
+                if lock_credential_or_ip_for_high_spam(queued_message, log_prefix)
+                  next
+                end
                 queued_message.message.create_delivery("HardFail", :details => "Message is likely spam. Threshold is #{outbound_threshold} and the message scored #{queued_message.message.spam_score}.")
                 queued_message.destroy
                 log "#{log_prefix} Message is spam (#{queued_message.message.spam_score}). Hard failing."
@@ -463,7 +469,9 @@ class UnqueueMessageJob < Postal::Job
                 log "#{log_prefix} Message exceeds absolute maximum spam score (#{queued_message.message.spam_score} >= 18). Hard failing."
                 queued_message.message.update(:spam => 1)
                 queued_message.message.database.statistics.increment_all(Time.now, 'spam')
-                lock_credential_or_ip_for_high_spam(queued_message, log_prefix)
+                if lock_credential_or_ip_for_high_spam(queued_message, log_prefix)
+                  next
+                end
                 queued_message.message.create_delivery("HardFail", :details => "Message exceeds maximum allowed spam score of 18. Score: #{queued_message.message.spam_score}.")
                 queued_message.destroy
                 next
@@ -746,10 +754,23 @@ class UnqueueMessageJob < Postal::Job
 
   private
 
+  def delete_if_sender_ip_banned(queued_message, log_prefix)
+    sender_ip = queued_message.message&.sender_ip
+    return false unless sender_ip.present? && GlobalSuppression.ip_banned?(sender_ip)
+
+    log "#{log_prefix} Source IP #{sender_ip} is globally banned. Deleting queued message and stored message."
+    queued_message.destroy
+    queued_message.message.delete
+    true
+  rescue => e
+    log "#{log_prefix} Failed to delete message from globally banned source IP: #{e.class}: #{e.message}"
+    false
+  end
+
   def lock_credential_or_ip_for_high_spam(queued_message, log_prefix)
     high_score = (Postal::SpamChecker::HIGH_CONFIDENCE_SPAM_SCORE rescue 18.0).to_f
     spam_score = queued_message.message.spam_score.to_f
-    return if spam_score < high_score
+    return false if spam_score < high_score
 
     window_seconds = (Postal.config.general.compromise.hour_window rescue 3600).to_i
     minimum_count = (Postal.config.general.compromise.high_spam_hold_threshold rescue 3).to_i
@@ -767,7 +788,7 @@ class UnqueueMessageJob < Postal::Job
     end
 
     high_spam_count = queued_message.server.message_db.select(:messages, :where => where, :count => true).to_i
-    return if high_spam_count < minimum_count
+    return false if high_spam_count < minimum_count
 
     reason = "High-confidence outbound spam: #{high_spam_count} messages in #{window_seconds / 60} minutes"
     if (credential = queued_message.message.credential) && !credential.hold?
@@ -790,10 +811,13 @@ class UnqueueMessageJob < Postal::Job
     if (sender_ip = queued_message.message.sender_ip)
       if GlobalSuppression.ban_ip(sender_ip, reason: reason)
         log "#{log_prefix} Sender IP #{sender_ip} added to global suppression after repeated high-confidence spam."
+        return delete_if_sender_ip_banned(queued_message, log_prefix)
       end
     end
+    false
   rescue => e
     log "#{log_prefix} Failed to apply high-spam credential/IP lock: #{e.class}: #{e.message}"
+    false
   end
 
   def cached_sender(klass, *args)

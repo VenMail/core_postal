@@ -183,6 +183,43 @@ RSpec.describe GlobalSuppression, type: :model do
         ban = GlobalSuppression.find_by(ip_address: '192.168.1.1')
         expect(ban.reason).to eq('Manual IP ban')
       end
+
+      it 'deletes held and queued messages from the banned sender IP' do
+        with_global_server do |server|
+          domain = create(:domain, :owner => server)
+          Route.create!(:server => server, :domain => domain, :name => 'test', :mode => 'Accept', :spam_mode => 'Mark')
+
+          create_message = lambda do |ip, recipient|
+            prototype = OutgoingMessagePrototype.new(server, ip, 'TestSuite', {
+              :from => "test@#{domain.name}",
+              :to => recipient,
+              :subject => 'Test Message',
+              :plain_body => 'A plain body'
+            })
+            expect(prototype.valid?).to be true
+            server.message_db.message(prototype.create_message(recipient)[:id])
+          end
+
+          held_message = create_message.call('204.10.162.167', 'held@example.com')
+          held_message.queued_message.destroy
+          held_message.create_delivery('Held', :details => 'Held for test')
+
+          queued_message = create_message.call('204.10.162.167', 'queued@example.com')
+          other_message = create_message.call('203.0.113.10', 'other@example.com')
+
+          expect(server.queued_messages.where(:message_id => queued_message.id).exists?).to be true
+          expect(server.queued_messages.where(:message_id => other_message.id).exists?).to be true
+
+          result = GlobalSuppression.ban_ip('204.10.162.167', reason: 'Test purge')
+
+          expect(result).to be_truthy
+          expect(server.queued_messages.where(:message_id => queued_message.id)).to be_empty
+          expect { server.message_db.message(held_message.id) }.to raise_error(Postal::MessageDB::Message::NotFound)
+          expect { server.message_db.message(queued_message.id) }.to raise_error(Postal::MessageDB::Message::NotFound)
+          expect(server.message_db.message(other_message.id).id).to eq(other_message.id)
+          expect(server.queued_messages.where(:message_id => other_message.id).exists?).to be true
+        end
+      end
     end
 
     describe '.unban_ip' do
