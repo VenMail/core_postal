@@ -1,6 +1,19 @@
 require 'ipaddr'
 
 class GlobalSuppression < ApplicationRecord
+  NON_GLOBAL_IP_RANGES = %w[
+    0.0.0.0/8
+    10.0.0.0/8
+    100.64.0.0/10
+    127.0.0.0/8
+    169.254.0.0/16
+    172.16.0.0/12
+    192.168.0.0/16
+    ::/128
+    ::1/128
+    fc00::/7
+    fe80::/10
+  ].map { |range| IPAddr.new(range) }.freeze
   
   self.table_name = 'global_suppressions'
   
@@ -18,6 +31,7 @@ class GlobalSuppression < ApplicationRecord
   def self.ban_ip(ip_address, reason: "Manual IP ban")
     normalized_ip = normalize_ip_address_string(ip_address)
     return false unless normalized_ip
+    return false unless suppressible_ip?(normalized_ip)
 
     suppression = where(ip_address: normalized_ip).first_or_initialize
     unless suppression.persisted? && suppression.active?
@@ -40,6 +54,7 @@ class GlobalSuppression < ApplicationRecord
   def self.ip_banned?(ip_address)
     normalized_ip = normalize_ip_address_string(ip_address)
     return false unless normalized_ip
+    return false unless suppressible_ip?(normalized_ip)
 
     # Include the raw cleaned value so legacy rows saved before IPv4-mapped
     # normalization still match while existing data is being cleaned up.
@@ -63,6 +78,16 @@ class GlobalSuppression < ApplicationRecord
     return false unless normalized_ip && normalized_ban
 
     IPAddr.new(normalized_ban).include?(IPAddr.new(normalized_ip.split('/', 2).first))
+  rescue IPAddr::InvalidAddressError
+    false
+  end
+
+  def self.suppressible_ip?(ip_address)
+    normalized_ip = normalize_ip_address_string(ip_address)
+    return false unless normalized_ip
+
+    ipaddr = IPAddr.new(normalized_ip.split('/', 2).first)
+    NON_GLOBAL_IP_RANGES.none? { |range| range.include?(ipaddr) }
   rescue IPAddr::InvalidAddressError
     false
   end
