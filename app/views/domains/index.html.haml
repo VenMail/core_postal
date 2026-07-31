@@ -41,11 +41,12 @@
               - else
                 %li.domainList__check.domainList__check--warning{:title => domain.spf_error}= link_to "SPF", [:setup, organization, @server, domain]
 
-              - if domain.dkim_status == 'OK'
+              - dkim_warning = domain.dkim_error.presence || 'DKIM key material is missing or invalid.'
+              - if domain.dkim_verified?
                 %li.domainList__check.domainList__check--ok DKIM
-              - elsif domain.dkim_status.nil?
+              - elsif domain.dkim_status.nil? && domain.api_public_dkim_payload[:status] == 'ready'
               - else
-                %li.domainList__check.domainList__check--warning{:title => domain.dkim_error}= link_to "DKIM", [:setup, organization, @server, domain]
+                %li.domainList__check.domainList__check--warning{:title => dkim_warning}= link_to "DKIM", [:setup, organization, @server, domain]
 
               - if domain.mx_status == 'OK'
                 %li.domainList__check.domainList__check--ok MX

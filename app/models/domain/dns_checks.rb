@@ -3,7 +3,7 @@ require 'resolv'
 class Domain
 
   def dns_ok?
-    spf_status == 'OK' && dkim_status == 'OK' && ['OK', 'Missing'].include?(self.mx_status) && ['OK', 'Missing'].include?(self.return_path_status)
+    spf_status == 'OK' && dkim_verified? && ['OK', 'Missing'].include?(self.mx_status) && ['OK', 'Missing'].include?(self.return_path_status)
   end
 
   def dns_checked?
@@ -75,7 +75,14 @@ class Domain
   #
   
   def check_dkim_record
-    domain = "#{dkim_record_name}.#{name}"
+    public_dkim = api_public_dkim_payload
+    unless public_dkim[:status] == 'ready'
+      self.dkim_status = 'Invalid'
+      self.dkim_error = 'DKIM key material is missing or invalid; regenerate it before checking DNS.'
+      return false
+    end
+
+    domain = "#{public_dkim[:record_name]}.#{name}"
     result = resolver.getresources(domain, Resolv::DNS::Resource::IN::TXT)
     records = result.map(&:data)
     if records.empty?
@@ -86,7 +93,7 @@ class Domain
       if records.size > 1
         self.dkim_status = 'Invalid'
         self.dkim_error = "There are #{records.size} records for at #{domain}. There should only be one."
-      elsif sanitised_dkim_record != self.dkim_record
+      elsif sanitised_dkim_record != public_dkim[:record]
         self.dkim_status = 'Invalid'
         self.dkim_error = "The DKIM record at #{domain} does not match the record we have provided. Please check it has been copied correctly."
       else

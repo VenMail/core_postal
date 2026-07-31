@@ -10,12 +10,15 @@ class Domain
     return false unless self.verification_method == 'DNS'
     result = resolver.getresources(self.name, Resolv::DNS::Resource::IN::TXT)
     if result.map { |d| d.data.to_s.strip }.include?(self.dns_verification_string)
-      self.verified_at = Time.now
+      verified_at = Time.now
+      self.verified_at = verified_at
+      self.verification_token_verified_at = verified_at
+      self.verification_token_verified_fingerprint = verification_token_proof_fingerprint
       self.save
     else
       check_mx_records
       check_dkim_record
-      if self.mx_status == 'OK' || self.dkim_status == 'OK'
+      if self.mx_status == 'OK' || dkim_verified?
         self.verified_at = Time.now
         self.save
       else

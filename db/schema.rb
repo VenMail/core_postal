@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2021_07_27_210551) do
+ActiveRecord::Schema.define(version: 2026_07_31_123000) do
 
   create_table "additional_route_endpoints", id: :integer, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", force: :cascade do |t|
     t.integer "route_id"
@@ -27,6 +27,16 @@ ActiveRecord::Schema.define(version: 2021_07_27_210551) do
     t.datetime "last_used_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+  end
+
+  create_table "auth_attempts", options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", force: :cascade do |t|
+    t.string "scope_key", null: false
+    t.integer "count", default: 0
+    t.datetime "window_started_at"
+    t.datetime "blocked_until"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["scope_key"], name: "index_auth_attempts_on_scope_key", unique: true
   end
 
   create_table "authie_sessions", id: :integer, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", force: :cascade do |t|
@@ -69,6 +79,9 @@ ActiveRecord::Schema.define(version: 2021_07_27_210551) do
     t.datetime "updated_at", precision: 6
     t.boolean "hold", default: false
     t.string "uuid"
+    t.datetime "hold_at"
+    t.string "hold_reason"
+    t.index ["hold_at"], name: "index_credentials_on_hold_at"
   end
 
   create_table "domains", id: :integer, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", force: :cascade do |t|
@@ -96,8 +109,23 @@ ActiveRecord::Schema.define(version: 2021_07_27_210551) do
     t.integer "owner_id"
     t.string "dkim_identifier_string"
     t.boolean "use_for_any"
+    t.integer "daily_send_limit"
+    t.datetime "send_limit_approaching_at"
+    t.datetime "send_limit_exceeded_at"
+    t.datetime "verification_token_verified_at"
+    t.string "verification_token_verified_fingerprint"
     t.index ["server_id"], name: "index_domains_on_server_id"
     t.index ["uuid"], name: "index_domains_on_uuid", length: 8
+  end
+
+  create_table "global_suppressions", options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", force: :cascade do |t|
+    t.string "ip_address", null: false
+    t.text "reason", null: false
+    t.datetime "keep_until"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["ip_address", "keep_until"], name: "index_global_suppressions_on_ip_address_and_keep_until"
+    t.index ["ip_address"], name: "index_global_suppressions_on_ip_address", unique: true
   end
 
   create_table "http_endpoints", id: :integer, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", force: :cascade do |t|
@@ -241,6 +269,8 @@ ActiveRecord::Schema.define(version: 2021_07_27_210551) do
     t.text "domains_not_to_click_track"
     t.string "suspension_reason"
     t.boolean "log_smtp_data", default: false
+    t.boolean "block_outgoing_without_verified_route", default: false
+    t.index ["block_outgoing_without_verified_route"], name: "index_servers_on_block_outgoing_without_verified_route"
     t.index ["organization_id"], name: "index_servers_on_organization_id"
     t.index ["permalink"], name: "index_servers_on_permalink", length: 6
     t.index ["token"], name: "index_servers_on_token", length: 6
@@ -322,6 +352,20 @@ ActiveRecord::Schema.define(version: 2021_07_27_210551) do
     t.boolean "admin", default: false
     t.index ["email_address"], name: "index_users_on_email_address", length: 8
     t.index ["uuid"], name: "index_users_on_uuid", length: 8
+  end
+
+  create_table "vvs_agent_keys", options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", force: :cascade do |t|
+    t.integer "server_id"
+    t.string "agent_name", null: false
+    t.string "domain", null: false
+    t.binary "private_key", limit: 64, null: false
+    t.binary "public_key", limit: 32, null: false
+    t.integer "key_version", default: 1, null: false
+    t.string "status", default: "active", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_name", "domain", "key_version"], name: "idx_vvs_agent_unique", unique: true
+    t.index ["agent_name", "domain", "status"], name: "idx_vvs_agent_lookup"
   end
 
   create_table "webhook_events", id: :integer, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", force: :cascade do |t|
