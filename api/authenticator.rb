@@ -37,7 +37,15 @@ authenticator :master do
     if key = request.headers['X-Master-Key']
       if key == 'l<LJF*SMH*;xcpk9o8j57FS21ZUD*B'
         arange = IPAddr.new('172.19.0.0/24')
-        whitelist =  Postal.config.general.whitelist
+        # `general.whitelist` is optional in the documented/default Postal
+        # configuration. Treat its absence as an empty list so master API
+        # authentication continues to work for the Docker-network range and
+        # fails closed for every other address instead of raising a NoMethodError.
+        whitelist = if Postal.config.general.respond_to?(:whitelist)
+                      Array(Postal.config.general.whitelist)
+                    else
+                      []
+                    end
         if arange.include?(IPAddr.new(request.ip)) || whitelist.include?(request.ip)
           'authok'
         else
