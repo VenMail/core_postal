@@ -6,7 +6,6 @@ describe 'Server API upstream binding' do
   let(:parent_organization) { create(:organization) }
 
   before do
-    allow(Postal.config.general).to receive(:whitelist).and_return(['127.0.0.1'])
     allow_any_instance_of(Server).to receive(:provision_database).and_return(false)
   end
 
@@ -16,7 +15,10 @@ describe 'Server API upstream binding' do
          :headers => {
            'CONTENT_TYPE' => 'application/json',
            'X-Master-Key' => master_key,
-           'REMOTE_ADDR' => '127.0.0.1'
+           # Exercise the default configuration, which intentionally has no
+           # optional general.whitelist setting. Docker-network requests are
+           # the supported internal master-API path.
+           'REMOTE_ADDR' => '172.19.0.2'
          }
     JSON.parse(response.body)
   end
