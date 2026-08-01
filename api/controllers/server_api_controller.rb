@@ -11,15 +11,18 @@ controller :server do
     param :mode, "Mode of the server", type: String
     param :webhook, "Webhook of the server", type: String
     param :event_hook, "Event webhook of the server", type: String
-    param :organization_id, "Organization ID", type: Integer
+    param :organization_id, "Postal parent organization ID", type: Integer, :required => true
     param :display_name, "Display name of the upstream Venmail organization", type: String
-    param :venmail_organization_id, "Upstream Venmail organization ID", type: Integer
+    param :venmail_organization_id, "Immutable upstream Venmail organization ID", type: Integer, :required => true
     returns Hash
 
-    action do  
-      organization_id = params.organization_id || 2 # Use organization_id from params or default to 2
+    action do
+      organization_id = params.organization_id.to_i
       upstream_organization_id = params.venmail_organization_id.to_s.strip.presence
       server_name = params.name.to_s.strip
+
+      error 'A Postal parent organization is required.', 422 if organization_id <= 0
+      error 'An immutable upstream Venmail organization ID is required.', 422 if upstream_organization_id.nil? || upstream_organization_id.to_i <= 0
 
       if upstream_organization_id
         server_prefix = "venmail-org-#{upstream_organization_id}"
@@ -33,13 +36,26 @@ controller :server do
       @organization = Organization.find(organization_id)
 
       @organization.with_lock do
-        @server = @organization.servers.where(name: server_name).first
+        # Look up by the immutable upstream identity before any mutable name.
+        # A plan-parent change must never silently create a second tenant.
+        @server = Server.where(:venmail_organization_id => upstream_organization_id).first
+        if @server
+          if @server.organization_id != @organization.id
+            error 'The upstream Venmail organization is already bound to a different Postal parent.', 409
+          end
+        else
+          same_name = @organization.servers.where(name: server_name).first
+          if same_name
+            # A legacy server cannot be claimed based only on its name. It must
+            # be explicitly backfilled after its true upstream owner is proved.
+            error 'An unbound or differently bound Postal server already uses this name.', 409
+          end
 
-        unless @server
           @server = @organization.servers.build(
             name: server_name,
             mode: params.mode,
-            organization_id: organization_id
+            organization_id: organization_id,
+            venmail_organization_id: upstream_organization_id
           )
 
           # Set the default organization_id if not supplied
@@ -51,87 +67,89 @@ controller :server do
         end
       end
 
-      # Create a new default HTTP endpoint for the created server if one does not already exist
+      # Endpoint, event hook, and credential creation must be serialized on the
+      # remote server as well. A caller can legitimately retry after a timeout;
+      # without this lock two retries could both see a missing DefaultEndpoint
+      # and create duplicate callbacks or credentials.
       base_url = Postal.config.general.external_api_base_url.to_s.chomp('/')
       venmail_org_id = upstream_organization_id || @server.id
       endpoint_url = params.webhook.to_s.strip.presence || "#{base_url}/api/v1/mails/org/#{venmail_org_id}"
       event_hook_url = params.event_hook.to_s.strip.presence || "#{base_url}/api/v1/events/org/#{venmail_org_id}"
 
-      default_endpoint = HTTPEndpoint.where(
-        name: "DefaultEndpoint",
-        server_id: @server.id
-      ).first
-
-      if default_endpoint.nil?
-        default_endpoint = HTTPEndpoint.new(
+      @server.with_lock do
+        default_endpoint = HTTPEndpoint.where(
           name: "DefaultEndpoint",
-          server_id: @server.id,
-          url: endpoint_url,
-          timeout: 5,
-          encoding: 'BodyAsJSON', # Set encoding
-          format: 'Hash', # Set format
-          strip_replies: false,
-          include_attachments: true
-        )
-        if not default_endpoint.save
-          error "Could not save server information #{default_endpoint.errors.full_messages}", 422
-        end
-      elsif default_endpoint.url != endpoint_url
-        unless default_endpoint.update(url: endpoint_url)
-          error "Could not update endpoint information #{default_endpoint.errors.full_messages}", 422
-        end
-      end
+          server_id: @server.id
+        ).first
 
-      default_event_hook = Webhook.where(
-        name: "DefaultEventHook",
-        server_id: @server.id
-      ).first
+        if default_endpoint.nil?
+          default_endpoint = HTTPEndpoint.new(
+            name: "DefaultEndpoint",
+            server_id: @server.id,
+            url: endpoint_url,
+            timeout: 5,
+            encoding: 'BodyAsJSON', # Set encoding
+            format: 'Hash', # Set format
+            strip_replies: false,
+            include_attachments: true
+          )
+          if not default_endpoint.save
+            error "Could not save server information #{default_endpoint.errors.full_messages}", 422
+          end
+        elsif default_endpoint.url != endpoint_url
+          # `server/create` is retry-safe, not a mutable callback-update API.
+          # Accepting a changed URL on a replay would let a stale/cross-boundary
+          # caller silently redirect a live tenant's mail ingress.
+          error 'The existing Postal HTTP endpoint conflicts with this immutable server binding.', 409
+        end
 
-      if default_event_hook.nil?
-        default_event_hook = Webhook.new(
+        default_event_hook = Webhook.where(
           name: "DefaultEventHook",
-          server_id: @server.id,
-          url: event_hook_url,
-          enabled: true,
-          all_events: false,
-          events: ['MessageDelayed', 'MessageDeliveryFailed', 'MessageHeld', 'MessageBounced']
-        )
-        if not default_event_hook.save
-          error "Could not save server information #{default_event_hook.errors.full_messages}", 422
-        end
-      elsif default_event_hook.url != event_hook_url
-        default_event_hook.url = event_hook_url
-        if not default_event_hook.save
-          error "Could not update webhook information #{default_event_hook.errors.full_messages}", 422
-        end
-      end
-      
-      # Create a new default credential for the created server if one does not already exist
-      default_credential = Credential.where(
-        server_id: @server.id,
-        type: 'API', # Set the type as needed
-        name: 'Default Credential' # Set the name as needed
-      ).first
+          server_id: @server.id
+        ).first
 
-      unless default_credential
-        default_credential = Credential.new(
+        if default_event_hook.nil?
+          default_event_hook = Webhook.new(
+            name: "DefaultEventHook",
+            server_id: @server.id,
+            url: event_hook_url,
+            enabled: true,
+            all_events: false,
+            events: ['MessageDelayed', 'MessageDeliveryFailed', 'MessageHeld', 'MessageBounced']
+          )
+          if not default_event_hook.save
+            error "Could not save server information #{default_event_hook.errors.full_messages}", 422
+          end
+        elsif default_event_hook.url != event_hook_url
+          error 'The existing Postal event hook conflicts with this immutable server binding.', 409
+        end
+
+        # Create a new default credential for the created server if one does not already exist.
+        default_credential = Credential.where(
           server_id: @server.id,
           type: 'API', # Set the type as needed
-          name: 'Default Credential', # Set the name as needed
-          hold: false
-        )
-      end
+          name: 'Default Credential' # Set the name as needed
+        ).first
 
-      if default_credential.save
-        result = { notice: 'Server was successfully created.' }
-        result[:server_id] = @server.id
-        result[:credential_key] = default_credential.key
-        result[:endpoint_id] = default_endpoint.id
-      else
-        result = { notice: 'Server creation failed.' }
-      end
+        unless default_credential
+          default_credential = Credential.new(
+            server_id: @server.id,
+            type: 'API', # Set the type as needed
+            name: 'Default Credential', # Set the name as needed
+            hold: false
+          )
+        end
 
-      result
+        if default_credential.save
+          result = { notice: 'Server was successfully created.' }
+          result[:server_id] = @server.id
+          result[:credential_key] = default_credential.key
+          result[:endpoint_id] = default_endpoint.id
+          result
+        else
+          { notice: 'Server creation failed.' }
+        end
+      end
     end
   end
   
@@ -178,22 +196,126 @@ controller :server do
 
   action :remove do
     title "Remove a server by ID"
-    description "Remove a server from the organization by its ID"
+    description "Remove a server only when its immutable Venmail owner matches"
 
     param :server_id, "Server ID to be removed", type: Integer
+    param :venmail_organization_id, "Immutable upstream Venmail organization ID", type: Integer, :required => true
     returns Hash
 
     action do
-      @server = Server.find_by_id(params.server_id)
-      error("NotFound", 404) unless @server
+      server_id = params.server_id.to_i
+      upstream_organization_id = params.venmail_organization_id.to_s.strip.presence
+      error 'A Postal server ID is required.', 422 if server_id <= 0
+      error 'An immutable upstream Venmail organization ID is required.', 422 if upstream_organization_id.nil? || upstream_organization_id.to_i <= 0
 
-      if @server.destroy
-        result = { notice: 'Server was successfully removed.' }
+      @server = Server.find_by_id(server_id)
+      unless @server
+        # An already-absent, explicitly addressed resource is safe to treat as
+        # an idempotent removal. The caller still supplied the immutable owner.
+        {
+          server_id: server_id,
+          venmail_organization_id: upstream_organization_id.to_i,
+          removed: false
+        }
       else
-        error "Could not remove the server", 422
+        unless @server.venmail_organization_id.present? && @server.venmail_organization_id.to_i == upstream_organization_id.to_i
+          error 'Postal server ownership does not match the upstream Venmail organization.', 409
+        end
+
+        if @server.destroy
+          {
+            notice: 'Server was successfully removed.',
+            server_id: @server.id,
+            venmail_organization_id: @server.venmail_organization_id,
+            removed: true
+          }
+        else
+          error "Could not remove the server", 422
+        end
+      end
+    end
+  end
+
+  action :identity do
+    title "Inspect a server's immutable upstream binding"
+    description "Return an ownership proof used before an external caller performs a destructive action"
+
+    param :server_id, "Server ID to inspect", type: Integer
+    param :venmail_organization_id, "Immutable upstream Venmail organization ID", type: Integer, :required => true
+    returns Hash
+
+    action do
+      server_id = params.server_id.to_i
+      upstream_organization_id = params.venmail_organization_id.to_s.strip.presence
+      error 'A Postal server ID is required.', 422 if server_id <= 0
+      error 'An immutable upstream Venmail organization ID is required.', 422 if upstream_organization_id.nil? || upstream_organization_id.to_i <= 0
+
+      @server = Server.find_by_id(server_id)
+      unless @server
+        {
+          server_id: server_id,
+          venmail_organization_id: upstream_organization_id.to_i,
+          exists: false,
+          bound: false,
+          matches: true
+        }
+      else
+        {
+          server_id: @server.id,
+          venmail_organization_id: @server.venmail_organization_id,
+          postal_parent_organization_id: @server.organization_id,
+          exists: true,
+          bound: @server.venmail_organization_id.present?,
+          matches: @server.venmail_organization_id.present? && @server.venmail_organization_id.to_i == upstream_organization_id.to_i
+        }
+      end
+    end
+  end
+
+  action :bind do
+    title "Backfill an immutable upstream server binding"
+    description "Bind only a conventionally named, parent-matched legacy server after the caller has independently audited its ownership"
+
+    param :server_id, "Existing Postal server ID", type: Integer
+    param :organization_id, "Expected Postal parent organization ID", type: Integer, :required => true
+    param :venmail_organization_id, "Immutable upstream Venmail organization ID", type: Integer, :required => true
+    returns Hash
+
+    action do
+      server_id = params.server_id.to_i
+      postal_parent_organization_id = params.organization_id.to_i
+      upstream_organization_id = params.venmail_organization_id.to_s.strip.presence
+      error 'A Postal server ID is required.', 422 if server_id <= 0
+      error 'A Postal parent organization is required.', 422 if postal_parent_organization_id <= 0
+      error 'An immutable upstream Venmail organization ID is required.', 422 if upstream_organization_id.nil? || upstream_organization_id.to_i <= 0
+
+      @server = Server.find_by_id(server_id)
+      error 'Postal server not found.', 404 unless @server
+
+      unless @server.organization_id == postal_parent_organization_id
+        error 'Postal server parent organization does not match the audited binding.', 409
       end
 
-      result
+      expected_prefix = "venmail-org-#{upstream_organization_id}"
+      unless @server.name.to_s == expected_prefix || @server.name.to_s.start_with?("#{expected_prefix}-")
+        error 'Legacy Postal server name does not prove the requested upstream organization binding.', 409
+      end
+
+      if @server.venmail_organization_id.present?
+        unless @server.venmail_organization_id.to_i == upstream_organization_id.to_i
+          error 'Postal server is already bound to a different upstream Venmail organization.', 409
+        end
+      else
+        @server.update!(:venmail_organization_id => upstream_organization_id.to_i)
+      end
+
+      {
+        server_id: @server.id,
+        venmail_organization_id: @server.venmail_organization_id,
+        postal_parent_organization_id: @server.organization_id,
+        bound: true,
+        matches: true
+      }
     end
   end
 end

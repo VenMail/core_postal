@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_07_31_123000) do
+ActiveRecord::Schema.define(version: 2026_07_31_130000) do
 
   create_table "additional_route_endpoints", id: :integer, options: "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", force: :cascade do |t|
     t.integer "route_id"
@@ -270,10 +270,12 @@ ActiveRecord::Schema.define(version: 2026_07_31_123000) do
     t.string "suspension_reason"
     t.boolean "log_smtp_data", default: false
     t.boolean "block_outgoing_without_verified_route", default: false
+    t.bigint "venmail_organization_id"
     t.index ["block_outgoing_without_verified_route"], name: "index_servers_on_block_outgoing_without_verified_route"
     t.index ["organization_id"], name: "index_servers_on_organization_id"
     t.index ["permalink"], name: "index_servers_on_permalink", length: 6
     t.index ["token"], name: "index_servers_on_token", length: 6
+    t.index ["venmail_organization_id"], name: "index_servers_on_venmail_organization_id", unique: true
     t.index ["uuid"], name: "index_servers_on_uuid", length: 8
   end
 
