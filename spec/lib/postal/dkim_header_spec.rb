@@ -9,7 +9,7 @@ describe Postal::DKIMHeader do
     contents = File.read(path)
     # puts "DEBUG: Contents length: #{contents.length}"
     # puts "DEBUG: Contains ---\\n: #{contents.include?("---\n")}"
-    parts = contents.split(/^---\n/m, 2)
+    parts = contents.split(/^---\r?\n/m, 2)
     # puts "DEBUG: Parts length: #{parts.length}"
     frontmatter = YAML.load(parts[0])
     email = (parts[1] || '').strip
@@ -18,7 +18,7 @@ describe Postal::DKIMHeader do
       allow(Time).to receive(:now).and_return(mocked_time)
 
       domain = instance_double('Domain')
-      allow(domain).to receive(:dkim_status).and_return('OK')
+      allow(domain).to receive(:dkim_verified?).and_return(true)
       allow(domain).to receive(:name).and_return(frontmatter['domain'])
       allow(domain).to receive(:dkim_key).and_return(OpenSSL::PKey::RSA.new(frontmatter['private_key']))
       allow(domain).to receive(:dkim_identifier).and_return(frontmatter['dkim_identifier'])
@@ -34,6 +34,17 @@ describe Postal::DKIMHeader do
 
       expect(header.dkim_header).to eq expectation
     end
+  end
+
+  it 'uses fallback signing when a domain is not currently DKIM verified' do
+    domain = instance_double('Domain')
+    allow(domain).to receive(:dkim_verified?).and_return(false)
+
+    header = described_class.new(domain, "From: sender@example.com\r\nSubject: Test\r\n\r\nBody")
+
+    expect { header.dkim_header }.not_to raise_error
+    expect(header.dkim_header).to include("d=#{Postal.config.dns.return_path};")
+    expect(header.dkim_header).to include("s=venmail;")
   end
 
 end

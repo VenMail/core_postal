@@ -30,12 +30,14 @@
 #  domains_not_to_click_track         :text(65535)
 #  suspension_reason                  :string(255)
 #  log_smtp_data                      :boolean          default(FALSE)
+#  venmail_organization_id            :bigint
 #
 # Indexes
 #
 #  index_servers_on_organization_id  (organization_id)
 #  index_servers_on_permalink        (permalink)
 #  index_servers_on_token            (token)
+#  index_servers_on_venmail_organization_id  (venmail_organization_id) UNIQUE
 #  index_servers_on_uuid             (uuid)
 #
 
@@ -90,9 +92,11 @@ class Server < ApplicationRecord
   default_value :spam_failure_threshold, -> { Postal.config.general.default_spam_failure_threshold }
 
   validates :name, :presence => true, :uniqueness => {:scope => :organization_id}
+  validates :venmail_organization_id, :uniqueness => true, :allow_nil => true
   validates :mode, :inclusion => {:in => MODES}
   validates :permalink, :presence => true, :uniqueness => {:scope => :organization_id}, :format => {:with => /\A[a-z0-9\-]*\z/}, :exclusion => {:in => RESERVED_PERMALINKS}
   validate :validate_ip_pool_belongs_to_organization
+  validate :validate_venmail_organization_binding_is_immutable
 
   before_validation(:on => :create) do
     self.token = self.token.downcase if self.token
@@ -390,6 +394,17 @@ class Server < ApplicationRecord
   def validate_ip_pool_belongs_to_organization
     if self.ip_pool && self.ip_pool_id_changed? && !self.organization.ip_pools.include?(self.ip_pool)
       errors.add :ip_pool_id, "must belong to the organization"
+    end
+  end
+
+  # `server/bind` intentionally backfills a legacy nil value once. Once Core
+  # has a non-null upstream Venmail owner, no model caller may silently point
+  # that Postal tenant at a different organization. The API controller alone
+  # is not a sufficient boundary because other application code can update a
+  # Server model directly.
+  def validate_venmail_organization_binding_is_immutable
+    if persisted? && venmail_organization_id_changed? && venmail_organization_id_was.present?
+      errors.add :venmail_organization_id, 'is immutable once bound'
     end
   end
 

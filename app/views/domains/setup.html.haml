@@ -46,20 +46,26 @@
     <b>include:#{Postal.config.dns.spf_include}</b> to your existing record.
   %pre.codeBlock.u-margin= @domain.spf_record
 
+  - dkim = @domain.api_public_dkim_payload
+  - dkim_error = @domain.dkim_error.presence || 'DKIM key material is missing or invalid. Regenerate the key before checking DNS.'
   %h3.pageContent__subTitle DKIM Record
-  - if @domain.dkim_status == 'OK'
+  - if @domain.dkim_verified?
     %p.pageContent__text.u-green.u-bold
       %span.label.label--green Good
       Your DKIM record looks good!
-  - elsif !@domain.dkim_status.nil?
+  - elsif !@domain.dkim_status.nil? || dkim[:status] != 'ready'
     %p.pageContent__text.u-orange.u-bold
       %span.label.label--orange Warning
-      = @domain.dkim_error
+      = dkim_error
 
-  %p.pageContent__text
-    You need to add a new TXT record with the name <b>#{@domain.dkim_record_name}</b>
-    with the following content.
-  %pre.codeBlock.u-margin= @domain.dkim_record
+  - if dkim[:record_name].present? && dkim[:record].present?
+    %p.pageContent__text
+      You need to add a new TXT record with the name <b>#{dkim[:record_name]}</b>
+      with the following content.
+    %pre.codeBlock.u-margin= dkim[:record]
+  - else
+    %p.pageContent__text
+      A valid DKIM DNS record cannot be shown until the DKIM key material is regenerated.
 
   %h3.pageContent__subTitle Return Path
   - if @domain.return_path_status == 'OK'

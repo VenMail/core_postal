@@ -9,6 +9,8 @@
 #  verification_token     :string(255)
 #  verification_method    :string(255)
 #  verified_at            :datetime
+#  verification_token_verified_at :datetime
+#  verification_token_verified_fingerprint :string(255)
 #  dkim_private_key       :text(65535)
 #  created_at             :datetime
 #  updated_at             :datetime
@@ -34,6 +36,7 @@
 #  index_domains_on_uuid       (uuid)
 #
 
+require 'digest'
 require 'resolv'
 
 class Domain < ApplicationRecord
@@ -51,16 +54,75 @@ class Domain < ApplicationRecord
   has_many :track_domains, dependent: :destroy
 
   VERIFICATION_METHODS = ['DNS', 'Email']
+  DKIM_KEY_BITS = 2048
+  DKIM_SELECTOR_SUFFIX_PATTERN = /\A[A-Za-z0-9_-]+\z/
+  DKIM_SELECTOR_PREFIX_PATTERN = /\A[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\z/
 
   validates :name, presence: true, format: { with: /\A[a-z0-9\-\.]*\z/ }, uniqueness: { scope: [:owner_type, :owner_id], message: "is already added" }
   validates :verification_method, inclusion: { in: VERIFICATION_METHODS }
+  validate :dkim_private_key_is_valid, if: :dkim_private_key_changed?
+  validate :dkim_identifier_string_is_valid, if: :dkim_identifier_string_changed?
 
+  before_validation :validate_dkim_identifier_string_before_generation, :prepend => true
   random_string :dkim_identifier_string, type: :chars, length: 6, unique: true, upper_letters_only: true
 
   before_create :generate_dkim_key, unless: :dkim_private_key_provided?
   before_create :set_default_daily_send_limit
 
   scope :verified, -> { where.not(verified_at: nil) }
+
+  def self.for_api_server(server)
+    server_domains = where(:owner_type => 'Server', :owner_id => server.id)
+    return server_domains unless server.organization_id
+
+    server_domains.or(where(:owner_type => 'Organization', :owner_id => server.organization_id))
+  end
+
+  def self.for_routing_server(server)
+    for_api_server(server)
+  end
+
+  def self.configured_dkim_identifier_prefix
+    prefix = Postal.config.dns.dkim_identifier.to_s
+    unless prefix.present? && prefix == prefix.strip && prefix.ascii_only? && prefix.match?(DKIM_SELECTOR_PREFIX_PATTERN) && prefix.bytesize < 63
+      raise ArgumentError, 'Configured DKIM selector prefix must be a valid DNS label'
+    end
+
+    prefix
+  end
+
+  def self.dkim_identifier_string_for_suffix(suffix)
+    prefix = configured_dkim_identifier_prefix
+    supplied_suffix = suffix.to_s
+
+    unless supplied_suffix.present? && supplied_suffix == supplied_suffix.strip && supplied_suffix.ascii_only? && supplied_suffix.match?(DKIM_SELECTOR_SUFFIX_PATTERN) && "#{prefix}-#{supplied_suffix}".bytesize <= 63
+      raise ArgumentError, 'DKIM identifier must be a valid selector suffix for the configured DKIM selector prefix'
+    end
+
+    if supplied_suffix.start_with?("#{prefix}-")
+      raise ArgumentError, 'DKIM identifier must be a suffix; use dkim_selector for a full selector'
+    end
+
+    supplied_suffix
+  end
+
+  def self.dkim_identifier_string_for_selector(selector)
+    prefix = configured_dkim_identifier_prefix
+    full_prefix = "#{prefix}-"
+    supplied_selector = selector.to_s
+
+    unless supplied_selector.start_with?(full_prefix)
+      raise ArgumentError, 'DKIM selector must use the configured DKIM selector prefix'
+    end
+
+    suffix = supplied_selector[full_prefix.length..-1]
+    parsed_suffix = dkim_identifier_string_for_suffix(suffix)
+    unless supplied_selector == "#{prefix}-#{parsed_suffix}"
+      raise ArgumentError, 'DKIM selector must be an exact DNS label with the configured DKIM selector prefix'
+    end
+
+    parsed_suffix
+  end
 
   when_attribute :verification_method, changes_to: :anything do
     before_save do
@@ -72,11 +134,36 @@ class Domain < ApplicationRecord
                                 else
                                   nil
                                 end
+      self.verification_token_verified_at = nil
+      self.verification_token_verified_fingerprint = nil
     end
   end
 
+  before_save :clear_verification_token_verified_at, if: :verification_proof_changed?
+  before_save :clear_dkim_verification_status, if: :dkim_material_changed?
+
   def verified?
     verified_at.present?
+  end
+
+  def verification_token_status
+    verification_token_verified? ? 'OK' : 'Pending'
+  end
+
+  def verification_token_verified?
+    return false unless verification_token_verified_at.present? && verification_token_verified_fingerprint.present?
+
+    ActiveSupport::SecurityUtils.secure_compare(verification_token_verified_fingerprint, verification_token_proof_fingerprint)
+  rescue ArgumentError
+    false
+  end
+
+  def verification_token_proof_fingerprint
+    Digest::SHA256.hexdigest(dns_verification_string)
+  end
+
+  def dkim_verified?
+    dkim_status == 'OK' && api_public_dkim_payload[:status] == 'ready'
   end
 
   CLOUDFLARE_IP_RANGES = [
@@ -118,8 +205,90 @@ class Domain < ApplicationRecord
     @dkim_key ||= OpenSSL::PKey::RSA.new(dkim_private_key)
   end
 
+  def dkim_private_key=(value)
+    @dkim_key = nil
+    super
+  end
+
   def dkim_identifier
-    "#{Postal.config.dns.dkim_identifier}-#{dkim_identifier_string}"
+    prefix = self.class.configured_dkim_identifier_prefix
+    suffix = self.class.dkim_identifier_string_for_suffix(dkim_identifier_string)
+    "#{prefix}-#{suffix}"
+  rescue ArgumentError
+    nil
+  end
+
+  def api_public_payload
+    dkim = api_public_dkim_payload
+
+    {
+      :id => id,
+      :name => name,
+      :verified_at => verified_at,
+      :created_at => created_at,
+      :updated_at => updated_at,
+      :dns_checked_at => dns_checked_at,
+      :verification_method => verification_method,
+      :verification_token => verification_token,
+      :verification_token_verified_at => verification_token_verified_at,
+      :verification_token_status => verification_token_status,
+      :spf_record => spf_record,
+      :spf_status => spf_status,
+      :spf_error => spf_error,
+      :dkim_status => dkim_status,
+      :dkim_verified => dkim_verified?,
+      :dkim_error => dkim_error,
+      :dkim_identifier_string => dkim[:identifier_string],
+      :dkim_identifier => dkim[:selector],
+      :dkim_selector => dkim[:selector],
+      :dkim_record => dkim[:record],
+      :dkim_record_name => dkim[:record_name],
+      :dkim_material_status => dkim[:status],
+      :dkim => dkim,
+      :mx_status => mx_status,
+      :mx_error => mx_error,
+      :return_path_status => return_path_status,
+      :return_path_error => return_path_error,
+      :outgoing => outgoing,
+      :incoming => incoming,
+      :owner_type => owner_type,
+      :owner_id => owner_id,
+      :use_for_any => use_for_any
+    }
+  end
+
+  def api_public_dkim_payload
+    details = {
+      :identifier_string => nil,
+      :selector => nil,
+      :record_name => nil
+    }
+
+    prefix = self.class.configured_dkim_identifier_prefix
+    suffix = self.class.dkim_identifier_string_for_suffix(dkim_identifier_string)
+    selector = "#{prefix}-#{suffix}"
+    details.merge!(:identifier_string => suffix, :selector => selector, :record_name => "#{selector}._domainkey")
+
+    return details.merge(:record => nil, :status => 'missing') if dkim_private_key.blank?
+
+    key = dkim_key
+    return details.merge(:record => nil, :status => 'invalid') unless key.private? && key.n.num_bits >= DKIM_KEY_BITS
+
+    record = dkim_record
+    return details.merge(:record => nil, :status => 'invalid') if record.blank?
+
+    details.merge(:record => record, :status => 'ready')
+  rescue OpenSSL::OpenSSLError, ArgumentError, TypeError
+    details.merge(:record => nil, :status => 'invalid')
+  end
+
+  def as_json(options = nil)
+    options = (options || {}).dup
+    options[:except] = Array(options[:except]).map(&:to_s) | ['dkim_private_key']
+    options[:only] = Array(options[:only]).reject { |attribute| attribute.to_s == 'dkim_private_key' } if options.key?(:only)
+    options[:methods] = Array(options[:methods]).reject { |method| method.to_s == 'dkim_private_key' } if options.key?(:methods)
+
+    super(options)
   end
 
   def cloudflare_ip?(ip)
@@ -138,11 +307,65 @@ class Domain < ApplicationRecord
   end
 
   def generate_dkim_key
-    self.dkim_private_key = OpenSSL::PKey::RSA.new(1024).to_s
+    self.dkim_private_key = OpenSSL::PKey::RSA.new(DKIM_KEY_BITS).to_s
+    @dkim_key = nil
+  end
+
+  def regenerate_dkim_key
+    generate_dkim_key
+    self.dkim_identifier_string = SecureRandom.alphanumeric(6).upcase
   end
 
   def dkim_private_key_provided?
     dkim_private_key.present?
+  end
+
+  def clear_verification_token_verified_at
+    self.verification_token_verified_at = nil
+    self.verification_token_verified_fingerprint = nil
+  end
+
+  def verification_proof_changed?
+    verification_token_changed? || name_changed?
+  end
+
+  def dkim_material_changed?
+    dkim_private_key_changed? || dkim_identifier_string_changed?
+  end
+
+  def clear_dkim_verification_status
+    self.dkim_status = nil
+    self.dkim_error = nil
+  end
+
+  def validate_dkim_identifier_string_before_generation
+    return unless dkim_identifier_string_changed?
+
+    self.class.dkim_identifier_string_for_suffix(dkim_identifier_string)
+  rescue ArgumentError => e
+    errors.add(:dkim_identifier_string, e.message)
+  end
+
+  def dkim_identifier_string_is_valid
+    self.class.dkim_identifier_string_for_suffix(dkim_identifier_string)
+  rescue ArgumentError => e
+    errors.add(:dkim_identifier_string, e.message)
+  end
+
+  def dkim_private_key_is_valid
+    unless dkim_private_key.present?
+      errors.add(:dkim_private_key, 'must be a valid RSA private key')
+      return
+    end
+
+    key = OpenSSL::PKey::RSA.new(dkim_private_key)
+    unless key.private?
+      errors.add(:dkim_private_key, 'must be a valid RSA private key')
+    else
+      errors.add(:dkim_private_key, "must be at least #{DKIM_KEY_BITS} bits") if key.n.num_bits < DKIM_KEY_BITS
+    end
+  rescue OpenSSL::OpenSSLError, ArgumentError, TypeError
+    errors.add(:dkim_private_key, 'must be a valid RSA private key')
   end
 
   def set_default_daily_send_limit
@@ -163,10 +386,13 @@ class Domain < ApplicationRecord
   def dkim_record
     public_key = dkim_key.public_key.to_s.gsub(/-+[A-Z ]+-+\n/, '').gsub(/\n/, '')
     "v=DKIM1; t=s; h=sha256; p=#{public_key};"
+  rescue OpenSSL::OpenSSLError, ArgumentError, TypeError
+    nil
   end
 
   def dkim_record_name
-    "#{dkim_identifier}._domainkey"
+    selector = dkim_identifier
+    selector && "#{selector}._domainkey"
   end
 
   def return_path_domain

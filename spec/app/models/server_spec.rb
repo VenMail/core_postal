@@ -11,6 +11,25 @@ describe Server do
     end
   end
 
+  context "immutable Venmail organization binding" do
+    it "allows a legacy unbound server to be bound once" do
+      server = create(:server, :venmail_organization_id => nil)
+
+      expect(server.update(:venmail_organization_id => 91_001)).to be true
+      expect(server.reload.venmail_organization_id).to eq(91_001)
+    end
+
+    it "rejects changing an established upstream organization binding" do
+      server = create(:server, :venmail_organization_id => 91_002)
+
+      server.venmail_organization_id = 91_003
+
+      expect(server).not_to be_valid
+      expect(server.errors[:venmail_organization_id]).to include('is immutable once bound')
+      expect(server.reload.venmail_organization_id).to eq(91_002)
+    end
+  end
+
   context "default IP pools" do
     let(:org) { create(:organization) }
     let(:server) { create(:server, organization: org) }
