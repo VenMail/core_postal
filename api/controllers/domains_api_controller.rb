@@ -1,7 +1,7 @@
 controller :domains do
   friendly_name "Domains API"
   description "This API allows you to manage domains"
-  authenticator :server
+  authenticator :server_control_plane
 
   action :get do
     title "Get domain details"

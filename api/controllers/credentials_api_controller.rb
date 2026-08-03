@@ -1,7 +1,7 @@
 controller :credentials do
   friendly_name "Credentials API"
   description "Manage SMTP credentials for the current server"
-  authenticator :server
+  authenticator :server_control_plane
 
   action :list do
     title "List credentials"

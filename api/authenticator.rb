@@ -28,6 +28,35 @@ authenticator :server do
   end
 end
 
+# This authenticator is deliberately limited to management APIs. It preserves
+# API-key authentication, suspension checks, and credential audit usage while
+# allowing a legitimate server to reconcile DNS and other configuration even
+# when its request IP is globally suppressed. Mail-submission APIs must remain
+# on :server so GlobalSuppression continues to stop mail from banned IPs.
+authenticator :server_control_plane do
+  friendly_name "Server Control-plane Authenticator"
+  header "X-Server-API-Key", "The API token for a server that you wish to authenticate with.", :example => 'f29a45f0d4e1744ebaee'
+  error 'InvalidServerAPIKey', "The API token provided in X-Server-API-Key was not valid.", :attributes => {:token => "The token that was looked up"}
+  error 'ServerSuspended', "The mail server has been suspended"
+  lookup do
+    if key = request.headers['X-Server-API-Key']
+      if credential = Credential.where(:type => 'API', :key => key).first
+        if credential.server.suspended?
+          error 'ServerSuspended'
+        else
+          credential.use
+          credential
+        end
+      else
+        error 'InvalidServerAPIKey', :token => key
+      end
+    end
+  end
+  rule :default, "AccessDenied", "Must be authenticated as a server." do
+    identity.is_a?(Credential)
+  end
+end
+
 authenticator :master do
   friendly_name "Master Authenticator"
   header "X-Master-Key", "The master token", :example => 'asdf'

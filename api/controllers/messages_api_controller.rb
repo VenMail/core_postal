@@ -1,7 +1,7 @@
 controller :messages do
   friendly_name "Messages API"
   description "This API allows you to access message details"
-  authenticator :server
+  authenticator :server_control_plane
 
   action :message do
     title "Return message details"

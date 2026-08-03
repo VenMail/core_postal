@@ -1,7 +1,7 @@
 controller :routes do
   friendly_name "Routes API"
   description "This API allows you to manage routes"
-  authenticator :server
+  authenticator :server_control_plane
 
   before do
     @route = Route.new
