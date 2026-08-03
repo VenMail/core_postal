@@ -96,5 +96,19 @@ RSpec.describe Domain do
         :dkim_error => 'DKIM key material is missing or invalid; regenerate it before checking DNS.'
       )
     end
+
+    it 'does not expose setup material for a placeholder selector' do
+      domain = create(:domain, :owner => create(:server))
+      domain.update_column(:dkim_identifier_string, '%dkim_data%')
+
+      expect(domain.reload.dkim_setup_record).to be_nil
+    end
+
+    it 'does not expose setup material when legacy private material is missing' do
+      domain = create(:domain, :owner => create(:server))
+      domain.update_column(:dkim_private_key, nil)
+
+      expect(domain.reload.dkim_setup_record).to be_nil
+    end
   end
 end
