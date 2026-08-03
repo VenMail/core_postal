@@ -153,7 +153,7 @@ controller :domains do
     returns Hash
 
     action do
-      domain = DomainApiAccess.new(identity.server).find_by_id(params.id)
+      domain = DomainApiAccess.new(identity.server).find_directly_owned_by_id(params.id)
       error("Domain with ID #{params.id} not found", 404) unless domain
 
       if params.regenerate && params.dkim_private_key.present?

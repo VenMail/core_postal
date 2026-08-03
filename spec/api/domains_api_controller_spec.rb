@@ -106,6 +106,22 @@ RSpec.describe 'Domains API', :type => :request do
     expect(Domain.where(:id => organization_domain.id)).to exist
   end
 
+  it 'does not let a server credential repair shared or sibling-owned domains' do
+    shared_domain = create(:organization_domain, :owner => authenticated_server.organization)
+    sibling_server = create(:server, :organization => authenticated_server.organization, :name => 'Sibling server')
+    sibling_domain = create(:domain, :owner => sibling_server)
+    shared_original_key = shared_domain.dkim_private_key
+    sibling_original_key = sibling_domain.dkim_private_key
+
+    shared_response = domains_api_request('update_single_dkim', :id => shared_domain.id, :regenerate => true)
+    sibling_response = domains_api_request('update_single_dkim', :id => sibling_domain.id, :regenerate => true)
+
+    expect(shared_response.fetch('status')).not_to eq('success')
+    expect(sibling_response.fetch('status')).not_to eq('success')
+    expect(shared_domain.reload.dkim_private_key).to eq(shared_original_key)
+    expect(sibling_domain.reload.dkim_private_key).to eq(sibling_original_key)
+  end
+
   it 'creates and explicitly regenerates 2048-bit DKIM keys' do
     create_response = domains_api_request('domain', :name => 'new-key-size.example')
     created_domain = Domain.find(create_response.fetch('data').fetch('id'))

@@ -47,19 +47,25 @@
   %pre.codeBlock.u-margin= @domain.spf_record
 
   %h3.pageContent__subTitle DKIM Record
-  - if @domain.dkim_status == 'OK'
+  - dkim_setup_record = @domain.dkim_setup_record
+  - if dkim_setup_record.present? && @domain.dkim_status == 'OK'
     %p.pageContent__text.u-green.u-bold
       %span.label.label--green Good
       Your DKIM record looks good!
-  - elsif !@domain.dkim_status.nil?
+  - elsif dkim_setup_record.present? && !@domain.dkim_status.nil?
     %p.pageContent__text.u-orange.u-bold
       %span.label.label--orange Warning
       = @domain.dkim_error
 
-  %p.pageContent__text
-    You need to add a new TXT record with the name <b>#{@domain.dkim_record_name}</b>
-    with the following content.
-  %pre.codeBlock.u-margin= @domain.dkim_record
+  - if dkim_setup_record.present?
+    %p.pageContent__text
+      You need to add a new TXT record with the name <b>#{@domain.dkim_record_name}</b>
+      with the following content.
+    %pre.codeBlock.u-margin= dkim_setup_record
+  - else
+    %p.pageContent__text.u-orange.u-bold
+      %span.label.label--orange Action required
+      DKIM setup requires repair before DNS instructions can be shown. Regenerate the DKIM key for this domain, then reload this page.
 
   %h3.pageContent__subTitle Return Path
   - if @domain.return_path_status == 'OK'

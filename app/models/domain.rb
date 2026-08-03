@@ -185,14 +185,29 @@ class Domain < ApplicationRecord
     identifier ? "#{identifier}._domainkey" : nil
   end
 
+  # Legacy rows can contain an invalid selector or missing/corrupt signing
+  # material. The setup page must not turn those states into a 500 response or
+  # publish incomplete DNS instructions.
+  def dkim_setup_record
+    return nil if dkim_record_name.blank?
+
+    record = dkim_record
+    return nil unless record.start_with?('v=DKIM1;') && record.match?(/(?:\A|;\s*)p=[^;\s]+;/)
+
+    record
+  rescue OpenSSL::PKey::RSAError, OpenSSL::PKey::PKeyError, ArgumentError, TypeError
+    nil
+  end
+
   # Domain JSON is used in several legacy paths. Keep the private signing key out of
   # generic serialization so a new API action cannot disclose it by accident. APIs
   # which legitimately need it must use DomainApiPayload with an authenticated owner.
+  def serializable_hash(options = nil)
+    redact_dkim_private_key(super(options))
+  end
+
   def as_json(options = nil)
-    payload = super(options)
-    payload.delete('dkim_private_key')
-    payload.delete(:dkim_private_key)
-    payload
+    redact_dkim_private_key(super(options))
   end
 
   def return_path_domain
@@ -208,6 +223,12 @@ class Domain < ApplicationRecord
   end
 
   private
+
+  def redact_dkim_private_key(payload)
+    payload.delete('dkim_private_key')
+    payload.delete(:dkim_private_key)
+    payload
+  end
 
   def validate_dkim_private_key
     key = OpenSSL::PKey::RSA.new(dkim_private_key)

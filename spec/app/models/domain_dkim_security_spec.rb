@@ -63,6 +63,14 @@ RSpec.describe Domain do
       expect(domain.as_json(:methods => [:dkim_private_key])).not_to have_key('dkim_private_key')
     end
 
+    it 'never includes the DKIM private key in generic serializable hashes' do
+      domain = create(:domain, :owner => create(:server))
+
+      expect(domain.serializable_hash).not_to have_key('dkim_private_key')
+      expect(domain.serializable_hash(:only => [:dkim_private_key])).not_to have_key('dkim_private_key')
+      expect(domain.serializable_hash(:methods => [:dkim_private_key])).not_to have_key('dkim_private_key')
+    end
+
     it 'does not perform a DNS lookup for a legacy placeholder selector' do
       domain = create(:domain, :owner => create(:server))
       domain.update_column(:dkim_identifier_string, '%dkim_data%')
