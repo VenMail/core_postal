@@ -12,10 +12,10 @@ controller :messages do
     action do
       begin
         message = identity.server.message(params.id)
+        structure :message, message, :return => true
       rescue Postal::MessageDB::Message::NotFound => e
         error 'MessageNotFound', :id => params.id
       end
-      structure :message, message, :return => true
     end
   end
 

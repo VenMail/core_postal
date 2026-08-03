@@ -50,6 +50,7 @@ describe 'Server control-plane authentication' do
     # from the authentication error envelope.  The exact error code proves this
     # management endpoint reached its action instead of being rejected at the
     # global-suppression authenticator boundary.
+    expect(message_response.fetch('status')).to eq('error')
     expect(message_response.to_json).to include('MessageNotFound')
     expect(message_response.to_json).not_to include('IPBanned')
   end
