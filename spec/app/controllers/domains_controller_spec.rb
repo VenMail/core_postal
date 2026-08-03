@@ -4,6 +4,13 @@ RSpec.describe DomainsController, :type => :controller do
   render_views
 
   describe '#setup' do
+    before do
+      # The layout sidebar consults live per-server message statistics, which
+      # are intentionally absent from this focused controller fixture. Keep
+      # the example about DNS setup rendering rather than message DB setup.
+      allow_any_instance_of(Server).to receive(:message_rate).and_return(0)
+    end
+
     it 'shows a repair-required state instead of rendering malformed DKIM instructions' do
       server = create(:server)
       domain = create(:domain, :owner => server)
