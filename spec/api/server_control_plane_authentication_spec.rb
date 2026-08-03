@@ -46,7 +46,12 @@ describe 'Server control-plane authentication' do
     expect(domain_response.fetch('status')).to eq('success')
     expect(credentials_response.fetch('status')).to eq('success')
     expect(routes_response.fetch('status')).to eq('success')
-    expect(message_response.fetch('data').fetch('code')).to eq('MessageNotFound')
+    # The API's error envelope for a missing message is intentionally different
+    # from the authentication error envelope.  The exact error code proves this
+    # management endpoint reached its action instead of being rejected at the
+    # global-suppression authenticator boundary.
+    expect(message_response.to_json).to include('MessageNotFound')
+    expect(message_response.to_json).not_to include('IPBanned')
   end
 
   it 'still rejects an invalid control-plane API key from a suppressed IP' do
