@@ -9,6 +9,17 @@ RSpec.describe DomainsController, :type => :controller do
       # are intentionally absent from this focused controller fixture. Keep
       # the example about DNS setup rendering rather than message DB setup.
       allow_any_instance_of(Server).to receive(:message_rate).and_return(0)
+      allow_any_instance_of(Server).to receive(:held_messages).and_return(0)
+      allow_any_instance_of(Server).to receive(:queue_size).and_return(0)
+      allow_any_instance_of(Server).to receive(:bounce_rate).and_return(0)
+      allow_any_instance_of(Server).to receive(:throughput_stats).and_return({
+        :outgoing_usage => 0,
+        :outgoing => 0,
+        :incoming => 0
+      })
+      allow_any_instance_of(Server).to receive(:message_db).and_return(
+        instance_double('Postal::MessageDB::Database', :total_size => 0)
+      )
     end
 
     it 'shows a repair-required state instead of rendering malformed DKIM instructions' do
