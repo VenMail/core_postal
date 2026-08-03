@@ -38,6 +38,9 @@ require 'resolv'
 
 class Domain < ApplicationRecord
 
+  DKIM_MINIMUM_RSA_BITS = 2048
+  DKIM_IDENTIFIER_STRING_PATTERN = /\A[A-Za-z0-9_-]{1,63}\z/
+
   include HasUUID
 
   require_dependency 'domain/dns_checks'
@@ -54,10 +57,12 @@ class Domain < ApplicationRecord
 
   validates :name, presence: true, format: { with: /\A[a-z0-9\-\.]*\z/ }, uniqueness: { scope: [:owner_type, :owner_id], message: "is already added" }
   validates :verification_method, inclusion: { in: VERIFICATION_METHODS }
+  validate :validate_dkim_private_key, if: :dkim_private_key_changed?
+  validate :validate_dkim_identifier_string, if: -> { dkim_identifier_string_changed? && dkim_identifier_string.present? }
 
   random_string :dkim_identifier_string, type: :chars, length: 6, unique: true, upper_letters_only: true
 
-  before_create :generate_dkim_key, unless: :dkim_private_key_provided?
+  before_validation :generate_dkim_key, on: :create, unless: :dkim_private_key_provided?
   before_create :set_default_daily_send_limit
 
   scope :verified, -> { where.not(verified_at: nil) }
@@ -115,10 +120,15 @@ class Domain < ApplicationRecord
   end
 
   def dkim_key
-    @dkim_key ||= OpenSSL::PKey::RSA.new(dkim_private_key)
+    return @dkim_key if defined?(@dkim_key_material) && @dkim_key_material == dkim_private_key
+
+    @dkim_key_material = dkim_private_key
+    @dkim_key = OpenSSL::PKey::RSA.new(dkim_private_key)
   end
 
   def dkim_identifier
+    return nil unless dkim_identifier_string_valid?
+
     "#{Postal.config.dns.dkim_identifier}-#{dkim_identifier_string}"
   end
 
@@ -138,7 +148,12 @@ class Domain < ApplicationRecord
   end
 
   def generate_dkim_key
-    self.dkim_private_key = OpenSSL::PKey::RSA.new(1024).to_s
+    self.dkim_private_key = OpenSSL::PKey::RSA.new(DKIM_MINIMUM_RSA_BITS).to_s
+  end
+
+  def regenerate_dkim_key
+    generate_dkim_key
+    self.dkim_identifier_string = SecureRandom.alphanumeric(6).upcase
   end
 
   def dkim_private_key_provided?
@@ -166,7 +181,18 @@ class Domain < ApplicationRecord
   end
 
   def dkim_record_name
-    "#{dkim_identifier}._domainkey"
+    identifier = dkim_identifier
+    identifier ? "#{identifier}._domainkey" : nil
+  end
+
+  # Domain JSON is used in several legacy paths. Keep the private signing key out of
+  # generic serialization so a new API action cannot disclose it by accident. APIs
+  # which legitimately need it must use DomainApiPayload with an authenticated owner.
+  def as_json(options = nil)
+    payload = super(options)
+    payload.delete('dkim_private_key')
+    payload.delete(:dkim_private_key)
+    payload
   end
 
   def return_path_domain
@@ -182,6 +208,31 @@ class Domain < ApplicationRecord
   end
 
   private
+
+  def validate_dkim_private_key
+    key = OpenSSL::PKey::RSA.new(dkim_private_key)
+
+    unless key.private?
+      errors.add(:dkim_private_key, 'must be a valid RSA private key')
+      return
+    end
+
+    if key.n.num_bits < DKIM_MINIMUM_RSA_BITS
+      errors.add(:dkim_private_key, "must be at least #{DKIM_MINIMUM_RSA_BITS} bits")
+    end
+  rescue OpenSSL::PKey::RSAError, OpenSSL::PKey::PKeyError, ArgumentError, TypeError
+    errors.add(:dkim_private_key, 'must be a valid RSA private key')
+  end
+
+  def validate_dkim_identifier_string
+    unless dkim_identifier_string_valid?
+      errors.add(:dkim_identifier_string, 'must be a valid DKIM selector suffix')
+    end
+  end
+
+  def dkim_identifier_string_valid?
+    dkim_identifier_string.present? && dkim_identifier_string.match?(DKIM_IDENTIFIER_STRING_PATTERN)
+  end
 
   def get_nameservers
     local_resolver = Resolv::DNS.new

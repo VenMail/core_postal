@@ -75,6 +75,20 @@ class Domain
   #
   
   def check_dkim_record
+    unless dkim_record_name
+      self.dkim_status = 'Invalid'
+      self.dkim_error = 'DKIM selector is missing or invalid; regenerate it before checking DNS.'
+      return false
+    end
+
+    begin
+      expected_dkim_record = dkim_record
+    rescue OpenSSL::PKey::RSAError, OpenSSL::PKey::PKeyError, ArgumentError, TypeError
+      self.dkim_status = 'Invalid'
+      self.dkim_error = 'DKIM key material is missing or invalid; regenerate it before checking DNS.'
+      return false
+    end
+
     domain = "#{dkim_record_name}.#{name}"
     result = resolver.getresources(domain, Resolv::DNS::Resource::IN::TXT)
     records = result.map(&:data)
@@ -86,7 +100,7 @@ class Domain
       if records.size > 1
         self.dkim_status = 'Invalid'
         self.dkim_error = "There are #{records.size} records for at #{domain}. There should only be one."
-      elsif sanitised_dkim_record != self.dkim_record
+      elsif sanitised_dkim_record != expected_dkim_record
         self.dkim_status = 'Invalid'
         self.dkim_error = "The DKIM record at #{domain} does not match the record we have provided. Please check it has been copied correctly."
       else

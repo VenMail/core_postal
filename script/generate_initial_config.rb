@@ -18,7 +18,7 @@ unless File.exist?(Postal.config_file_path)
 end
 
 unless File.exists?(Postal.signing_key_path)
-  key = OpenSSL::PKey::RSA.new(1024).to_s
+  key = OpenSSL::PKey::RSA.new(2048).to_s
   File.open(Postal.signing_key_path, 'w') { |f| f.write(key) }
   puts "Created new signing key for DKIM & HTTP requests"
 end

@@ -33,9 +33,9 @@ controller :routes do
         error error_message, 400
       end
 
-      domain = Domain.find_by(id: params.domain_id)
+      domain = DomainApiAccess.new(identity.server).find_by_id(params.domain_id)
       unless domain
-        error "Domain with ID #{domain_id} not found", 404
+        error "Domain with ID #{params.domain_id} not found", 404
       end
         new_route = Route.create(
         name: params.name,
