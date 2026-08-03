@@ -1,6 +1,8 @@
 require 'rails_helper'
 
 RSpec.describe DomainsController, :type => :controller do
+  render_views
+
   describe '#setup' do
     it 'shows a repair-required state instead of rendering malformed DKIM instructions' do
       server = create(:server)
