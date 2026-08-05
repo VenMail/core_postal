@@ -121,8 +121,8 @@ jobs:
           username: ${{ secrets.SSH_USERNAME_LIVE }}
           key: ${{ secrets.SSH_PRIVATE_KEY_LIVE }}
           # Verified using a read-only Paramiko production inspection. Pin the
-          # RSA host key negotiated by the Go SSH client used by this action.
-          fingerprint: 'SHA256:/zBVI6u+vJhmWECfMLcxE3AM8QD2ofVMLZKD8rsjb8c'
+          # ECDSA host key negotiated by the Go SSH client used by this action.
+          fingerprint: 'SHA256:yIYa/c7FcIhzqf+STrzs7+sxzv2ZOt/nPCJy1JXvfHU'
           envs: DEPLOY_SHA
           command_timeout: 30m
           script: |
