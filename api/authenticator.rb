@@ -1,4 +1,5 @@
 require 'ipaddr'
+require 'postal/api_request_trust'
 
 authenticator :server do
   friendly_name "Server Authenticator"
@@ -30,9 +31,10 @@ end
 
 # This authenticator is deliberately limited to management APIs. It preserves
 # API-key authentication, suspension checks, and credential audit usage while
-# allowing a legitimate server to reconcile DNS and other configuration even
-# when its request IP is globally suppressed. Mail-submission APIs must remain
-# on :server so GlobalSuppression continues to stop mail from banned IPs.
+# allowing authenticated infrastructure to reconcile DNS and configuration
+# from an explicitly trusted source even when its request IP is globally
+# suppressed. Mail-submission APIs must remain on :server so GlobalSuppression
+# continues to stop mail from banned IPs.
 authenticator :server_control_plane do
   friendly_name "Server Control-plane Authenticator"
   header "X-Server-API-Key", "The API token for a server that you wish to authenticate with.", :example => 'f29a45f0d4e1744ebaee'
@@ -40,7 +42,21 @@ authenticator :server_control_plane do
   error 'ServerSuspended', "The mail server has been suspended"
   lookup do
     if key = request.headers['X-Server-API-Key']
-      if credential = Credential.where(:type => 'API', :key => key).first
+      credential = Credential.where(:type => 'API', :key => key).first
+      whitelist = if Postal.config.general.respond_to?(:whitelist)
+                    Array(Postal.config.general.whitelist)
+                  else
+                    []
+                  end
+      trusted_control_plane = Postal::ApiRequestTrust.trusted?(
+        request,
+        :expected_master_key => Postal.config.general.master_api_key,
+        :whitelist => whitelist
+      )
+
+      if GlobalSuppression.ip_banned?(request.ip) && !(credential && trusted_control_plane)
+        error 'IPBanned'
+      elsif credential
         if credential.server.suspended?
           error 'ServerSuspended'
         else
@@ -64,24 +80,15 @@ authenticator :master do
   error 'InvalidIP', "The IP is invalid", :attributes => {:ip => "Given header IP"}
   lookup do
     if key = request.headers['X-Master-Key']
-      if key == 'l<LJF*SMH*;xcpk9o8j57FS21ZUD*B'
-        arange = IPAddr.new('172.19.0.0/24')
-        # `general.whitelist` is optional in the documented/default Postal
-        # configuration. Treat its absence as an empty list so master API
-        # authentication continues to work for the Docker-network range and
-        # fails closed for every other address instead of raising a NoMethodError.
-        whitelist = if Postal.config.general.respond_to?(:whitelist)
-                      Array(Postal.config.general.whitelist)
-                    else
-                      []
-                    end
-        if arange.include?(IPAddr.new(request.ip)) || whitelist.include?(request.ip)
-          'authok'
-        else
-          error 'InvalidIP', :ip => request.ip
-        end
-      else
+      if !Postal::ApiRequestTrust.key_valid?(key, Postal.config.general.master_api_key)
         error 'InvalidKey', :key => key
+      elsif Postal::ApiRequestTrust.source_trusted?(
+        request.ip,
+        Postal.config.general.respond_to?(:whitelist) ? Postal.config.general.whitelist : []
+      )
+        'authok'
+      else
+        error 'InvalidIP', :ip => request.ip
       end
     end
   end

@@ -2,10 +2,11 @@ require 'rails_helper'
 require 'json'
 
 describe 'Server API upstream binding' do
-  let(:master_key) { 'l<LJF*SMH*;xcpk9o8j57FS21ZUD*B' }
+  let(:master_key) { 'configured-master-key' }
   let(:parent_organization) { create(:organization) }
 
   before do
+    Postal.config.general.master_api_key = master_key
     allow_any_instance_of(Server).to receive(:provision_database).and_return(false)
   end
 

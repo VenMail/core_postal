@@ -9,6 +9,7 @@ web:
   protocol: https
 
 general:
+  master_api_key:
   use_ip_pools: false
   default_ip_pools: 
     - global-primary

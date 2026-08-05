@@ -5,6 +5,7 @@ describe 'Server control-plane authentication' do
   let(:authenticated_server) { create(:server) }
   let(:credential) { create(:credential, :api, :server => authenticated_server) }
   let(:banned_ip) { '203.0.113.44' }
+  let(:master_key) { 'configured-master-key' }
 
   def api_post(path, params = {}, headers = {})
     post path,
@@ -12,12 +13,15 @@ describe 'Server control-plane authentication' do
          :headers => {
            'CONTENT_TYPE' => 'application/json',
            'X-Server-API-Key' => credential.key,
+           'X-Master-Key' => master_key,
            'REMOTE_ADDR' => banned_ip
          }.merge(headers)
     JSON.parse(response.body)
   end
 
   before do
+    Postal.config.general.master_api_key = master_key
+    Postal.config.general.whitelist = [banned_ip]
     GlobalSuppression.ban_ip(banned_ip, :reason => 'Control-plane authentication contract')
   end
 
@@ -59,11 +63,27 @@ describe 'Server control-plane authentication' do
     end
   end
 
-  it 'still rejects an invalid control-plane API key from a suppressed IP' do
+  it 'does not bypass suppression for an invalid control-plane API key' do
     response_payload = api_post('/api/v1/domains/list', {}, 'X-Server-API-Key' => 'invalid-key')
 
     expect(response_payload.fetch('status')).to eq('error')
-    expect(response_payload.fetch('data').fetch('code')).to eq('InvalidServerAPIKey')
+    expect(response_payload.fetch('data').fetch('code')).to eq('IPBanned')
+  end
+
+  it 'does not bypass suppression without the configured master credential' do
+    response_payload = api_post('/api/v1/domains/list', {}, 'X-Master-Key' => 'wrong')
+
+    expect(response_payload.fetch('status')).to eq('error')
+    expect(response_payload.fetch('data').fetch('code')).to eq('IPBanned')
+  end
+
+  it 'does not bypass suppression from an untrusted source' do
+    Postal.config.general.whitelist = []
+
+    response_payload = api_post('/api/v1/domains/list')
+
+    expect(response_payload.fetch('status')).to eq('error')
+    expect(response_payload.fetch('data').fetch('code')).to eq('IPBanned')
   end
 
   it 'keeps authenticated mail submission blocked for a suppressed IP' do
