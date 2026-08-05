@@ -230,6 +230,7 @@ class Domain < ApplicationRecord
       :dns_checked_at => dns_checked_at,
       :verification_method => verification_method,
       :verification_token => verification_token,
+      :verification_record => verification_method == 'DNS' && verification_token.present? ? dns_verification_string : nil,
       :verification_token_verified_at => verification_token_verified_at,
       :verification_token_status => verification_token_status,
       :spf_record => spf_record,

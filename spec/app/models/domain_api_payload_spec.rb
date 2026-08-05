@@ -21,6 +21,16 @@ describe Domain do
   end
 
   describe '#api_public_payload' do
+    it 'returns the complete configured DNS ownership record' do
+      domain = create(:domain, :owner => create(:server), :verification_token => 'tenant-token')
+      allow(Postal.config.dns).to receive(:domain_verify_prefix).and_return('configured-prefix')
+
+      expect(domain.api_public_payload).to include(
+        :verification_token => 'tenant-token',
+        :verification_record => 'configured-prefix tenant-token'
+      )
+    end
+
     it 'returns the configured DKIM selector and public DNS record without a private key' do
       domain = create(:domain, :owner => create(:server), :dkim_identifier_string => 'A1B2C3')
       allow(Postal.config.dns).to receive(:dkim_identifier).and_return('venmail')
