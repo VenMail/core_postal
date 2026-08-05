@@ -22,7 +22,8 @@ describe Domain do
 
   describe '#api_public_payload' do
     it 'returns the complete configured DNS ownership record' do
-      domain = create(:domain, :owner => create(:server), :verification_token => 'tenant-token')
+      domain = create(:domain, :owner => create(:server))
+      domain.update_column(:verification_token, 'tenant-token')
       allow(Postal.config.dns).to receive(:domain_verify_prefix).and_return('configured-prefix')
 
       expect(domain.api_public_payload).to include(
