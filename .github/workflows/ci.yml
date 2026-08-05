@@ -115,6 +115,8 @@ jobs:
         uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         env:
           DEPLOY_SHA: ${{ github.sha }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.SSH_HOST_LIVE }}
           port: ${{ secrets.SSH_PORT_LIVE }}
@@ -123,7 +125,7 @@ jobs:
           # Verified using a read-only Paramiko production inspection. Pin the
           # ECDSA host key negotiated by the Go SSH client used by this action.
           fingerprint: 'SHA256:yIYa/c7FcIhzqf+STrzs7+sxzv2ZOt/nPCJy1JXvfHU'
-          envs: DEPLOY_SHA
+          envs: DEPLOY_SHA,GHCR_USERNAME,GHCR_TOKEN
           command_timeout: 30m
           script: |
             set -euo pipefail
@@ -145,6 +147,11 @@ jobs:
             live_tag="${image_repo}:latest"
 
             test -f "$compose_file"
+            registry_config="$(mktemp -d)"
+            export DOCKER_CONFIG="$registry_config"
+            trap 'rm -rf "$registry_config"' EXIT
+            printf '%s' "$GHCR_TOKEN" \
+              | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin >/dev/null
             docker pull "$image_tag"
             expected_image_id="$(docker image inspect "$image_tag" --format '{{.Id}}')"
             test -n "$expected_image_id"
