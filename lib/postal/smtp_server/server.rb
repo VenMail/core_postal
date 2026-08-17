@@ -5,6 +5,8 @@ module Postal
   module SMTPServer
     class Server
 
+      TLS_HANDSHAKE_TIMEOUT = 10
+
       def initialize(options = {})
         @options = options
         @options[:debug] ||= false
@@ -82,9 +84,12 @@ module Postal
         @io_selector.register(@server, :r)
         # Create a hash to contain a buffer for each client.
         buffers = Hash.new { |h, k| h[k] = String.new.force_encoding('BINARY') }
+        # TLS negotiation must remain non-blocking because this selector services
+        # every SMTP connection in the process.
+        tls_handshakes = {}
         loop do
           # Wait for an event to occur
-          @io_selector.select do |monitor|
+          @io_selector.select(1) do |monitor|
             # Get the IO from the nio monitor
             io = monitor.io
             # Is this event an incoming connection?
@@ -129,6 +134,17 @@ module Postal
               begin
                 # Get the client from the nio monitor
                 client = monitor.value
+                if tls_handshakes.key?(io)
+                  case advance_tls_handshake(io, monitor, client, tls_handshakes)
+                  when :pending, :complete
+                    next
+                  when :failed
+                    @io_selector.deregister(io) rescue nil
+                    buffers.delete(io)
+                    io.close rescue nil
+                    next
+                  end
+                end
                 # For now we assume the connection isn't closed
                 eof = false
                 begin
@@ -189,13 +205,10 @@ module Postal
                   monitor.value = client
                   # Close the underlying IO when the TLS socket is closed
                   io.sync_close = true
-                  begin
-                    # Start TLS negotiation
-                    io.accept
-                  rescue OpenSSL::SSL::SSLError => e
-                    client.log "SSL Negotiation Failed: #{e.message}"
-                    eof = true
-                  end
+                  tls_handshakes[io] = {
+                    client: client,
+                    deadline: monotonic_time + TLS_HANDSHAKE_TIMEOUT
+                  }
                 end
 
                 # Has the clint requested we close the connection?
@@ -231,6 +244,7 @@ module Postal
               end
             end
           end
+          expire_tls_handshakes(tls_handshakes, buffers)
           # If unlisten has been called, stop listening
           if $unlisten
             @io_selector.deregister(@server)
@@ -262,6 +276,47 @@ module Postal
       end
 
       private
+
+      def advance_tls_handshake(io, monitor, client, tls_handshakes)
+        tls_handshakes[io] ||= {
+          client: client,
+          deadline: monotonic_time + TLS_HANDSHAKE_TIMEOUT
+        }
+
+        case io.accept_nonblock(exception: false)
+        when :wait_readable
+          monitor.interests = :r
+          :pending
+        when :wait_writable
+          monitor.interests = :w
+          :pending
+        else
+          tls_handshakes.delete(io)
+          monitor.interests = :r
+          :complete
+        end
+      rescue OpenSSL::SSL::SSLError, IOError, SystemCallError => e
+        client.log "SSL Negotiation Failed: #{e.message}"
+        tls_handshakes.delete(io)
+        :failed
+      end
+
+      def expire_tls_handshakes(tls_handshakes, buffers)
+        now = monotonic_time
+        tls_handshakes.each do |io, handshake|
+          next if handshake[:deadline] > now
+
+          handshake[:client].log "SSL Negotiation Failed: handshake timed out"
+          @io_selector.deregister(io) rescue nil
+          buffers.delete(io)
+          io.close rescue nil
+          tls_handshakes.delete(io)
+        end
+      end
+
+      def monotonic_time
+        Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      end
 
       def logger
         Postal.logger_for(:smtp_server)
