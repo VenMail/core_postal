@@ -89,11 +89,10 @@ class Domain
       self.dkim_status = 'Missing'
       self.dkim_error = "No TXT records were returned for #{domain}"
     else
-      sanitised_dkim_record = records.first.strip.ends_with?(';') ? records.first.strip : "#{records.first.strip};"
       if records.size > 1
         self.dkim_status = 'Invalid'
         self.dkim_error = "There are #{records.size} records for at #{domain}. There should only be one."
-      elsif sanitised_dkim_record != public_dkim[:record]
+      elsif !dkim_record_matches?(records.first, public_dkim[:record])
         self.dkim_status = 'Invalid'
         self.dkim_error = "The DKIM record at #{domain} does not match the record we have provided. Please check it has been copied correctly."
       else
@@ -108,6 +107,38 @@ class Domain
     check_dkim_record
     save!
   end
+
+  # DNS providers split long TXT values into chunks and Resolv joins those
+  # chunks with whitespace. Compare the DKIM key material semantically rather
+  # than requiring the resolver's presentation string to match byte-for-byte.
+  def dkim_record_matches?(candidate, authoritative)
+    candidate_tags = parse_dkim_tags(candidate)
+    authoritative_tags = parse_dkim_tags(authoritative)
+    return false unless candidate_tags && authoritative_tags
+    return false unless candidate_tags['v'].to_s.casecmp('DKIM1').zero?
+    return false unless authoritative_tags['v'].to_s.casecmp('DKIM1').zero?
+    return false if candidate_tags.key?('k') && !candidate_tags['k'].casecmp('rsa').zero?
+
+    candidate_key = candidate_tags['p'].to_s.gsub(/\s+/, '')
+    authoritative_key = authoritative_tags['p'].to_s.gsub(/\s+/, '')
+
+    candidate_key.present? && authoritative_key.present? && candidate_key == authoritative_key
+  end
+
+  def parse_dkim_tags(record)
+    tags = {}
+    record.to_s.delete('"').split(';').each do |segment|
+      name, value = segment.split('=', 2).map(&:strip)
+      next if name.blank? && value.blank?
+      return nil if name.blank? || value.nil? || tags.key?(name.downcase)
+
+      tags[name.downcase] = value
+    end
+
+    tags.presence
+  end
+
+  private :dkim_record_matches?, :parse_dkim_tags
 
   #
   # MX
