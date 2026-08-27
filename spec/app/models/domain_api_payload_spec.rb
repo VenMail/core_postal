@@ -86,21 +86,35 @@ describe Domain do
       )
     end
 
-    it 'fails closed for persisted DKIM material below the required RSA key size' do
+    it 'keeps persisted RSA-1024 DKIM material readable and DNS-verifiable as legacy' do
       domain = create(:domain, :owner => create(:server))
       domain.update_columns(
         :dkim_private_key => OpenSSL::PKey::RSA.new(1024).to_s,
-        :dkim_status => 'OK'
+        :dkim_status => 'Invalid'
       )
+      domain.reload
+
+      payload = domain.api_public_dkim_payload
+      resolver = instance_double(Resolv::DNS)
+      txt_record = instance_double(Resolv::DNS::Resource::IN::TXT, :data => payload[:record])
+      allow(domain).to receive(:resolver).and_return(resolver)
+      allow(resolver).to receive(:getresources)
+        .with("#{payload[:record_name]}.#{domain.name}", Resolv::DNS::Resource::IN::TXT)
+        .and_return([txt_record])
 
       expect(domain.api_public_payload).to include(
-        :dkim_record => nil,
-        :dkim_material_status => 'invalid',
-        :dkim_verified => false,
-        :dkim => include(:record => nil, :status => 'invalid')
+        :dkim_record => payload[:record],
+        :dkim_material_status => 'ready',
+        :dkim => include(
+          :record => payload[:record],
+          :status => 'ready',
+          :key_bits => 1024,
+          :legacy => true
+        )
       )
       expect { domain.check_dkim_record! }.not_to raise_error
-      expect(domain.reload.dkim_status).to eq('Invalid')
+      expect(domain.reload.dkim_status).to eq('OK')
+      expect(domain.dkim_verified?).to be(true)
     end
 
     it 'does not expose a legacy placeholder selector as a DNS record name' do
