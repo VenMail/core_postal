@@ -55,6 +55,7 @@ class Domain < ApplicationRecord
 
   VERIFICATION_METHODS = ['DNS', 'Email']
   DKIM_KEY_BITS = 2048
+  LEGACY_DKIM_KEY_BITS = 1024
   DKIM_SELECTOR_SUFFIX_PATTERN = /\A[A-Za-z0-9_-]+\z/
   DKIM_SELECTOR_PREFIX_PATTERN = /\A[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\z/
 
@@ -262,7 +263,9 @@ class Domain < ApplicationRecord
     details = {
       :identifier_string => nil,
       :selector => nil,
-      :record_name => nil
+      :record_name => nil,
+      :key_bits => nil,
+      :legacy => false
     }
 
     prefix = self.class.configured_dkim_identifier_prefix
@@ -273,12 +276,18 @@ class Domain < ApplicationRecord
     return details.merge(:record => nil, :status => 'missing') if dkim_private_key.blank?
 
     key = dkim_key
-    return details.merge(:record => nil, :status => 'invalid') unless key.private? && key.n.num_bits >= DKIM_KEY_BITS
+    key_bits = key.n.num_bits
+    return details.merge(:record => nil, :status => 'invalid') unless key.private? && key_bits >= LEGACY_DKIM_KEY_BITS
 
     record = dkim_record
     return details.merge(:record => nil, :status => 'invalid') if record.blank?
 
-    details.merge(:record => record, :status => 'ready')
+    details.merge(
+      :record => record,
+      :status => 'ready',
+      :key_bits => key_bits,
+      :legacy => key_bits < DKIM_KEY_BITS
+    )
   rescue OpenSSL::OpenSSLError, ArgumentError, TypeError
     details.merge(:record => nil, :status => 'invalid')
   end
