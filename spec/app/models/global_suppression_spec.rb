@@ -227,6 +227,32 @@ RSpec.describe GlobalSuppression, type: :model do
           expect(server.queued_messages.where(:message_id => other_message.id).exists?).to be true
         end
       end
+
+      it 'purges only the banned actor when messages share a transport gateway' do
+        with_global_server do |server|
+          domain = create(:domain, :owner => server)
+          Route.create!(:server => server, :domain => domain, :name => 'test', :mode => 'Accept', :spam_mode => 'Mark')
+          gateway_ip = '2a03:4000:15:e61:281d:40ff:fe8d:c8d2'
+
+          create_actor_message = lambda do |actor_ip, recipient|
+            prototype = OutgoingMessagePrototype.new(server, gateway_ip, 'TestSuite', {
+              :from => "test@#{domain.name}",
+              :to => recipient,
+              :subject => 'Test Message',
+              :plain_body => 'A plain body'
+            }, :external_actor_ip => actor_ip)
+            server.message_db.message(prototype.create_message(recipient).fetch(:id))
+          end
+
+          banned_actor_message = create_actor_message.call('204.10.162.167', 'banned@example.com')
+          other_actor_message = create_actor_message.call('203.0.113.10', 'other@example.com')
+
+          GlobalSuppression.ban_ip('204.10.162.167', :reason => 'Actor-only purge')
+
+          expect { server.message_db.message(banned_actor_message.id) }.to raise_error(Postal::MessageDB::Message::NotFound)
+          expect(server.message_db.message(other_actor_message.id).sender_ip).to eq('203.0.113.10')
+        end
+      end
     end
 
     describe '.unban_ip' do

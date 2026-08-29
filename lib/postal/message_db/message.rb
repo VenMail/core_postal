@@ -343,6 +343,9 @@ module Postal
       # Extract sender IP from Received headers (best-effort)
       #
       def sender_ip
+        explicit = self.external_actor_ip.to_s.strip
+        return explicit unless explicit.empty?
+
         received = headers['received'] || []
         text = Array(received).join("\n")
         return nil if text.empty?

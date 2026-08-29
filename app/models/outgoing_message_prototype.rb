@@ -17,9 +17,10 @@ class OutgoingMessagePrototype
   attr_accessor :credential
   attr_accessor :bounce
 
-  def initialize(server, ip, source_type, attributes)
+  def initialize(server, ip, source_type, attributes, external_actor_ip: nil)
     @server = server
     @ip = ip
+    @external_actor_ip = external_actor_ip
     @source_type = source_type
     @custom_headers = {}
     @attachments = []
@@ -203,6 +204,8 @@ class OutgoingMessagePrototype
     message.credential_id = self.credential&.id
     message.received_with_ssl = true
     message.bounce = @bounce ? 1 : 0
+    message.transport_peer_ip = @ip
+    message.external_actor_ip = @external_actor_ip
     message.save
     {:id => message.id, :token => message.token}
   end
