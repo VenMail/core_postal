@@ -1,4 +1,5 @@
 require 'ipaddr'
+require 'postal/api_request_trust'
 
 class ReputationMonitorJob < Postal::Job
   # Optimized reputation monitoring with single-pass message processing
@@ -17,13 +18,6 @@ class ReputationMonitorJob < Postal::Job
   IP_SPAM_MESSAGE_THRESHOLD = 5  # Block IP after 5 spam messages
   REPLY_TO_MISMATCH_THRESHOLD = 3  # Investigate after 3 Reply-To mismatches
   MONITORING_WINDOW_MINUTES = 5  # Check last 5 minutes for active attacks
-  
-  # Whitelisted IPs - Never block these (admin IPs, trusted sources)
-  WHITELISTED_IPS = [
-    '102.219.153.212',  # Admin IP
-    '127.0.0.1',
-    '::1'
-  ].freeze
   
   # Performance tuning
   BATCH_SIZE = 1000
@@ -492,7 +486,7 @@ class ReputationMonitorJob < Postal::Job
           where: {
             scope: 'outgoing',
             timestamp: { greater_than: since_time.to_f },
-            spam_score: { greater_than_or_equal: SPAM_SCORE_THRESHOLD }
+            spam_score: { greater_than_or_equal_to: SPAM_SCORE_THRESHOLD }
           },
           limit: 1000
         }
@@ -531,6 +525,11 @@ class ReputationMonitorJob < Postal::Job
 
     unless valid_ip?(normalized_ip)
       Rails.logger.error "ReputationMonitorJob: Invalid IP address format: #{ip_address}"
+      return
+    end
+
+    unless GlobalSuppression.suppressible_ip?(normalized_ip)
+      Rails.logger.info "ReputationMonitorJob: Skipping non-public infrastructure IP #{normalized_ip}"
       return
     end
     
@@ -700,6 +699,9 @@ class ReputationMonitorJob < Postal::Job
 
   def whitelisted_ip?(ip)
     normalized_ip = GlobalSuppression.normalize_ip_address_string(ip)
-    WHITELISTED_IPS.any? { |whitelisted| GlobalSuppression.normalize_ip_address_string(whitelisted) == normalized_ip }
+    return false if normalized_ip.blank?
+
+    whitelist = Postal.config.general.respond_to?(:whitelist) ? Array(Postal.config.general.whitelist) : []
+    Postal::ApiRequestTrust.source_trusted?(normalized_ip, whitelist)
   end
 end
