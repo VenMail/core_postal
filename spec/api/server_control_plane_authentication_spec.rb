@@ -86,8 +86,48 @@ describe 'Server control-plane authentication' do
     expect(response_payload.fetch('data').fetch('code')).to eq('IPBanned')
   end
 
-  it 'keeps authenticated mail submission blocked for a suppressed IP' do
+  it 'does not treat a trusted gateway as the mail actor when provenance is missing' do
     response_payload = api_post('/api/v1/send/message')
+
+    expect(response_payload.fetch('status')).to eq('error')
+    expect(response_payload.fetch('data').fetch('code')).not_to eq('IPBanned')
+  end
+
+  it 'blocks mail submission when a trusted gateway identifies a suppressed external actor' do
+    actor_ip = '198.51.100.73'
+    GlobalSuppression.unban_ip(banned_ip)
+    GlobalSuppression.ban_ip(actor_ip, :reason => 'External actor authentication contract')
+
+    response_payload = api_post(
+      '/api/v1/send/message',
+      {},
+      'X-Venmail-Client-IP' => actor_ip
+    )
+
+    expect(response_payload.fetch('status')).to eq('error')
+    expect(response_payload.fetch('data').fetch('code')).to eq('IPBanned')
+  end
+
+  it 'ignores a claimed actor and checks the suppressed peer when the master key is invalid' do
+    response_payload = api_post(
+      '/api/v1/send/message',
+      {},
+      'X-Master-Key' => 'wrong',
+      'X-Venmail-Client-IP' => '198.51.100.74'
+    )
+
+    expect(response_payload.fetch('status')).to eq('error')
+    expect(response_payload.fetch('data').fetch('code')).to eq('IPBanned')
+  end
+
+  it 'ignores a claimed actor and checks the suppressed peer from an untrusted source' do
+    Postal.config.general.whitelist = []
+
+    response_payload = api_post(
+      '/api/v1/send/message',
+      {},
+      'X-Venmail-Client-IP' => '198.51.100.75'
+    )
 
     expect(response_payload.fetch('status')).to eq('error')
     expect(response_payload.fetch('data').fetch('code')).to eq('IPBanned')
@@ -106,12 +146,12 @@ describe 'Server control-plane authentication' do
       expect(response_payload.fetch('data')).to include('id' => domain.id)
     end
 
-    it 'keeps mail submission rejected as IPBanned from the same IPv6 address' do
+    it 'does not reject trusted gateway mail submission solely because the IPv6 peer is suppressed' do
       response_payload = api_post('/api/v1/send/message')
 
       expect(GlobalSuppression.ip_banned?(banned_ip)).to be(true)
       expect(response_payload.fetch('status')).to eq('error')
-      expect(response_payload.fetch('data').fetch('code')).to eq('IPBanned')
+      expect(response_payload.fetch('data').fetch('code')).not_to eq('IPBanned')
     end
   end
 end

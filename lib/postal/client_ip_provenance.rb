@@ -1,4 +1,5 @@
 require 'ipaddr'
+require 'digest'
 require 'postal/api_request_trust'
 
 module Postal
@@ -57,6 +58,20 @@ module Postal
       canonical.length <= MAX_LENGTH ? canonical : nil
     rescue IPAddr::InvalidAddressError
       nil
+    end
+
+    def self.log_diagnostic(result, credential)
+      return unless result.trusted_gateway && [:missing, :invalid].include?(result.status)
+
+      peer_hash = Digest::SHA256.hexdigest(result.transport_peer_ip.to_s)[0, 16]
+      cache_key = "postal:client-ip-provenance:#{result.status}:#{peer_hash}"
+      Rails.cache.fetch(cache_key, :expires_in => 5.minutes) do
+        Rails.logger.warn(
+          "Client IP provenance status=#{result.status} peer_hash=#{peer_hash} " \
+          "credential_id=#{credential.id} server_id=#{credential.server_id}"
+        )
+        true
+      end
     end
   end
 end

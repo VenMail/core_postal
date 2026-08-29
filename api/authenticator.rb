@@ -1,5 +1,6 @@
 require 'ipaddr'
 require 'postal/api_request_trust'
+require 'postal/client_ip_provenance'
 
 authenticator :server do
   friendly_name "Server Authenticator"
@@ -9,13 +10,29 @@ authenticator :server do
   error 'IPBanned', "The IP address has been banned"
   lookup do
     if key = request.headers['X-Server-API-Key']
-      # Check if IP is globally banned first (before any database queries)
-      if GlobalSuppression.ip_banned?(request.ip)
+      whitelist = if Postal.config.general.respond_to?(:whitelist)
+                    Array(Postal.config.general.whitelist)
+                  else
+                    []
+                  end
+      provenance = Postal::ClientIpProvenance.resolve(
+        request,
+        :expected_master_key => Postal.config.general.master_api_key,
+        :whitelist => whitelist
+      )
+      blocked_ip = provenance.trusted_gateway ? provenance.external_actor_ip : provenance.transport_peer_ip
+
+      # Reject a known external actor (or an untrusted direct peer) before the
+      # credential lookup. A trusted gateway with absent/invalid provenance is
+      # diagnosed after authentication rather than treating the gateway as the
+      # sender and potentially suppressing all tenant traffic.
+      if blocked_ip && GlobalSuppression.ip_banned?(blocked_ip)
         error 'IPBanned'
       elsif credential = Credential.where(:type => 'API', :key => key).first
         if credential.server.suspended?
           error 'ServerSuspended'
         else
+          Postal::ClientIpProvenance.log_diagnostic(provenance, credential)
           credential.use
           credential
         end

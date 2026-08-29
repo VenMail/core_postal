@@ -63,4 +63,31 @@ RSpec.describe 'Postal client IP provenance' do
     expect(result.status).to eq(:invalid)
     expect(result.external_actor_ip).to be_nil
   end
+
+  describe '.log_diagnostic' do
+    let(:credential) { Struct.new(:id, :server_id).new(17, 23) }
+
+    it 'rate limits missing provenance diagnostics without logging the peer address' do
+      result = resolve(:actor => nil)
+
+      expect(Rails.cache).to receive(:fetch).with(
+        a_string_matching(/postal:client-ip-provenance:missing:[0-9a-f]{16}\z/),
+        :expires_in => 5.minutes
+      ).and_yield
+      expect(Rails.logger).to receive(:warn) do |message|
+        expect(message).to include('status=missing', 'credential_id=17', 'server_id=23')
+        expect(message).not_to include(result.transport_peer_ip)
+      end
+
+      Postal::ClientIpProvenance.log_diagnostic(result, credential)
+    end
+
+    it 'does not log accepted or untrusted provenance' do
+      expect(Rails.cache).not_to receive(:fetch)
+      expect(Rails.logger).not_to receive(:warn)
+
+      Postal::ClientIpProvenance.log_diagnostic(resolve, credential)
+      Postal::ClientIpProvenance.log_diagnostic(resolve(:key => 'wrong'), credential)
+    end
+  end
 end
