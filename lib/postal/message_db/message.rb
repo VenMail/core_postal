@@ -346,6 +346,9 @@ module Postal
         explicit = self.external_actor_ip.to_s.strip
         return explicit unless explicit.empty?
 
+        peer = self.transport_peer_ip.to_s.strip
+        return peer unless peer.empty?
+
         received = headers['received'] || []
         text = Array(received).join("\n")
         return nil if text.empty?

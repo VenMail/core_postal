@@ -1,3 +1,5 @@
+require 'postal/client_ip_provenance'
+
 controller :send do
   friendly_name "Send API"
   description "This API allows you to send messages"
@@ -35,6 +37,14 @@ controller :send do
     returns Hash
     # Action
     action do
+      whitelist = Postal.config.general.respond_to?(:whitelist) ? Array(Postal.config.general.whitelist) : []
+      provenance = Postal::ClientIpProvenance.resolve(
+        request,
+        :expected_master_key => Postal.config.general.master_api_key,
+        :whitelist => whitelist
+      )
+      Postal::ClientIpProvenance.log_diagnostic(provenance, identity)
+
       attributes = {}
       attributes[:to] = params.to
       attributes[:cc] = params.cc
@@ -53,7 +63,13 @@ controller :send do
         next unless attachment.is_a?(Hash)
         attributes[:attachments] << {:name => attachment['name'], :content_type => attachment['content_type'], :data => attachment['data'], :base64 => true}
       end
-      message = OutgoingMessagePrototype.new(identity.server, request.ip, 'api', attributes)
+      message = OutgoingMessagePrototype.new(
+        identity.server,
+        provenance.transport_peer_ip || request.ip,
+        'api',
+        attributes,
+        :external_actor_ip => provenance.external_actor_ip
+      )
       message.credential = identity
       if message.valid?
         result = message.create_messages
@@ -74,6 +90,14 @@ controller :send do
     returns Hash
     error 'UnauthenticatedFromAddress', "The From address is not authorised to send mail from this server"
     action do
+      whitelist = Postal.config.general.respond_to?(:whitelist) ? Array(Postal.config.general.whitelist) : []
+      provenance = Postal::ClientIpProvenance.resolve(
+        request,
+        :expected_master_key => Postal.config.general.master_api_key,
+        :whitelist => whitelist
+      )
+      Postal::ClientIpProvenance.log_diagnostic(provenance, identity)
+
       # Decode the raw message
       raw_message = Base64.decode64(params.data)
 
@@ -100,6 +124,8 @@ controller :send do
         message.domain_id = authenticated_domain.id
         message.credential_id = identity.id
         message.bounce = params.bounce ? 1 : 0
+        message.transport_peer_ip = provenance.transport_peer_ip || request.ip
+        message.external_actor_ip = provenance.external_actor_ip
         message.save
         result[:message_id] = message.message_id if result[:message_id].nil?
         result[:messages][rcpt_to] = {:id => message.id, :token => message.token}
