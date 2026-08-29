@@ -23,9 +23,21 @@ module Postal
     end
 
     def self.source_trusted?(source_ip, whitelist)
-      value = source_ip.to_s
+      address = IPAddr.new(source_ip.to_s)
 
-      CONTROL_NETWORK.include?(IPAddr.new(value)) || Array(whitelist).include?(value)
+      CONTROL_NETWORK.include?(address) || configured_source_trusted?(source_ip, whitelist)
+    rescue IPAddr::InvalidAddressError
+      false
+    end
+
+    def self.configured_source_trusted?(source_ip, whitelist)
+      address = IPAddr.new(source_ip.to_s)
+
+      Array(whitelist).any? do |entry|
+        IPAddr.new(entry.to_s).include?(address)
+      rescue IPAddr::InvalidAddressError
+        false
+      end
     rescue IPAddr::InvalidAddressError
       false
     end
