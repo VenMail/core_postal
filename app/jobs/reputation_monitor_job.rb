@@ -496,10 +496,13 @@ class ReputationMonitorJob < Postal::Job
         
         messages.each do |record|
           message = Postal::MessageDB::Message.new(server.message_db, record)
+          spam_score = message.spam_score.to_f
+          next unless spam_score.finite? && spam_score >= SPAM_SCORE_THRESHOLD
+
           ip = GlobalSuppression.normalize_ip_address_string(message.sender_ip)
           next if ip.blank? || whitelisted_ip?(ip)
 
-          ip_groups[ip] << message.spam_score.to_f
+          ip_groups[ip] << spam_score
         end
 
         ip_groups.each do |ip, spam_scores|

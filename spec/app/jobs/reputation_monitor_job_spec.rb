@@ -28,6 +28,53 @@ RSpec.describe ReputationMonitorJob do
 
       described_class.new('test-id').send(:find_suspicious_ips, Time.at(0))
     end
+
+    it 'ignores records whose actual spam score is below the blocking threshold' do
+      message_db = double('message_db')
+      server = double('server', :id => 81, :message_db => message_db)
+      relation = double('server_relation')
+      records = Array.new(6) do |index|
+        {
+          'id' => index + 1,
+          'external_actor_ip' => '198.51.100.24',
+          'spam_score' => 0.0
+        }
+      end
+
+      allow(Server).to receive(:where).with(:suspended_at => nil).and_return(relation)
+      allow(relation).to receive(:find_each).and_yield(server)
+      allow(message_db).to receive(:select).and_return(records)
+
+      result = described_class.new('test-id').send(:find_suspicious_ips, Time.at(0))
+
+      expect(result).to be_empty
+    end
+
+    it 'groups records whose actual spam score meets the blocking threshold' do
+      message_db = double('message_db')
+      server = double('server', :id => 81, :message_db => message_db)
+      relation = double('server_relation')
+      records = Array.new(6) do |index|
+        {
+          'id' => index + 1,
+          'external_actor_ip' => '198.51.100.25',
+          'spam_score' => 12.5
+        }
+      end
+
+      allow(Server).to receive(:where).with(:suspended_at => nil).and_return(relation)
+      allow(relation).to receive(:find_each).and_yield(server)
+      allow(message_db).to receive(:select).and_return(records)
+
+      result = described_class.new('test-id').send(:find_suspicious_ips, Time.at(0))
+
+      expect(result).to contain_exactly(
+        'ip_address' => '198.51.100.25',
+        'spam_count' => 6,
+        'avg_score' => 12.5,
+        'server_id' => 81
+      )
+    end
   end
 
   describe '#whitelisted_ip?' do
