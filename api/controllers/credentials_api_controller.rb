@@ -50,12 +50,7 @@ controller :credentials do
       # create new
       new_cred = identity.server.credentials.build(type: 'SMTP', name: old.name)
       if new_cred.save
-        old.update(hold: true)
-        WebhookRequest.trigger(identity.server, 'CredentialLocked', {
-          server: identity.server.webhook_hash,
-          credential: { id: old.id, uuid: old.uuid, name: old.name, type: old.type },
-          reason: 'Rotated'
-        })
+        old.update(:hold => true, :hold_at => Time.now, :hold_reason => 'Rotated')
         { old_id: old.id, old_uuid: old.uuid, new_id: new_cred.id, new_uuid: new_cred.uuid, key: new_cred.key }
       else
         error "RecordInvalid", errors: new_cred.errors.full_messages
@@ -71,12 +66,7 @@ controller :credentials do
     action do
       cred = identity.server.credentials.find_by_uuid(params.uuid)
       error("NotFound", 404) unless cred
-      cred.update(hold: true)
-      WebhookRequest.trigger(identity.server, 'CredentialLocked', {
-        server: identity.server.webhook_hash,
-        credential: { id: cred.id, uuid: cred.uuid, name: cred.name, type: cred.type },
-        reason: 'Revoked'
-      })
+      cred.update(:hold => true, :hold_at => Time.now, :hold_reason => 'Revoked')
       { id: cred.id, uuid: cred.uuid, hold: cred.hold }
     end
   end

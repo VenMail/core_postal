@@ -115,13 +115,20 @@ controller :server do
             url: event_hook_url,
             enabled: true,
             all_events: false,
-            events: ['MessageDelayed', 'MessageDeliveryFailed', 'MessageHeld', 'MessageBounced']
+            events: ['MessageDelayed', 'MessageDeliveryFailed', 'MessageHeld', 'MessageBounced', 'CredentialLocked']
           )
           if not default_event_hook.save
             error "Could not save server information #{default_event_hook.errors.full_messages}", 422
           end
         elsif default_event_hook.url != event_hook_url
           error 'The existing Postal event hook conflicts with this immutable server binding.', 409
+        end
+
+        # Existing servers predate customer-impact credential alerts. Repair
+        # the subscription idempotently whenever the immutable create call is
+        # replayed, while preserving every existing message event.
+        unless default_event_hook.all_events?
+          default_event_hook.webhook_events.find_or_create_by!(:event => 'CredentialLocked')
         end
 
         # Create a new default credential for the created server if one does not already exist.
