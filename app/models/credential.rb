@@ -34,7 +34,9 @@ class Credential < ApplicationRecord
   serialize :options, Hash
 
   before_validation :generate_key
-  after_commit :emit_locked_webhook, :on => :update, :if => :became_held?
+  after_update :remember_held_transition
+  after_commit :emit_locked_webhook_after_commit, :on => :update
+  after_rollback :clear_held_transition
 
 
   def generate_key
@@ -80,8 +82,20 @@ class Credential < ApplicationRecord
 
   private
 
-  def became_held?
-    previous_changes.key?('hold') && previous_changes['hold'] == [false, true]
+  def remember_held_transition
+    if previous_changes.key?('hold') && previous_changes['hold'] == [false, true]
+      @emit_locked_webhook_after_commit = true
+    end
+  end
+
+  def emit_locked_webhook_after_commit
+    should_emit = @emit_locked_webhook_after_commit && hold?
+    clear_held_transition
+    emit_locked_webhook if should_emit
+  end
+
+  def clear_held_transition
+    @emit_locked_webhook_after_commit = false
   end
 
   def emit_locked_webhook
