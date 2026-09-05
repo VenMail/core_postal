@@ -41,15 +41,19 @@ RSpec.describe Credential, type: :model do
     end
 
     it 'does not emit when the hold transaction rolls back' do
-      expect(WebhookRequest).not_to receive(:trigger)
+      enable_credential_webhook(credential)
+      allow(WebhookDeliveryJob).to receive(:queue)
       credential_id = credential.id
 
-      Credential.transaction(:requires_new => true) do
-        credential.update!(:hold => true, :hold_at => hold_at, :hold_reason => 'Rolled back')
-        raise ActiveRecord::Rollback
-      end
+      expect {
+        Credential.transaction(:requires_new => true) do
+          credential.update!(:hold => true, :hold_at => hold_at, :hold_reason => 'Rolled back')
+          raise ActiveRecord::Rollback
+        end
+      }.not_to change(WebhookRequest, :count)
 
       expect(Credential.find(credential_id).hold).to be(false)
+      expect(WebhookDeliveryJob).not_to have_received(:queue)
     end
 
     it 'emits after commit when a later save occurs in the same transaction' do
@@ -95,16 +99,24 @@ RSpec.describe Credential, type: :model do
 
     it 'does not emit a transition that occurred wholly inside a rolled-back savepoint' do
       credential.update!(:hold => true, :hold_at => hold_at, :hold_reason => 'Existing hold')
-      allow(WebhookRequest).to receive(:trigger)
+      enable_credential_webhook(credential)
+      allow(WebhookDeliveryJob).to receive(:queue)
 
-      Credential.transaction(:requires_new => true) do
-        credential.update!(:hold => false)
-        credential.update!(:hold => true)
-        raise ActiveRecord::Rollback
-      end
-      credential.update!(:name => 'Unrelated committed save')
+      expect {
+        Credential.transaction(:requires_new => true) do
+          credential.update!(:hold => false)
+          credential.update!(:hold => true)
+          raise ActiveRecord::Rollback
+        end
+        credential.update!(:name => 'Unrelated committed save')
+      }.not_to change(WebhookRequest, :count)
 
-      expect(WebhookRequest).not_to have_received(:trigger)
+      expect(WebhookDeliveryJob).not_to have_received(:queue)
+    end
+
+    def enable_credential_webhook(credential)
+      webhook = create(:webhook, :server => credential.server, :enabled => true)
+      create(:webhook_event, :webhook => webhook, :event => 'CredentialLocked')
     end
   end
 end
