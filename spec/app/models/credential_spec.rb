@@ -92,5 +92,19 @@ RSpec.describe Credential, type: :model do
         end
       end
     end
+
+    it 'does not emit a transition that occurred wholly inside a rolled-back savepoint' do
+      credential.update!(:hold => true, :hold_at => hold_at, :hold_reason => 'Existing hold')
+      allow(WebhookRequest).to receive(:trigger)
+
+      Credential.transaction(:requires_new => true) do
+        credential.update!(:hold => false)
+        credential.update!(:hold => true)
+        raise ActiveRecord::Rollback
+      end
+      credential.update!(:name => 'Unrelated committed save')
+
+      expect(WebhookRequest).not_to have_received(:trigger)
+    end
   end
 end
