@@ -42,13 +42,14 @@ RSpec.describe Credential, type: :model do
 
     it 'does not emit when the hold transaction rolls back' do
       expect(WebhookRequest).not_to receive(:trigger)
+      credential_id = credential.id
 
       Credential.transaction(:requires_new => true) do
         credential.update!(:hold => true, :hold_at => hold_at, :hold_reason => 'Rolled back')
         raise ActiveRecord::Rollback
       end
 
-      expect(credential.reload.hold).to be(false)
+      expect(Credential.find(credential_id).hold).to be(false)
     end
   end
 end
