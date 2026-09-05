@@ -51,5 +51,25 @@ RSpec.describe Credential, type: :model do
 
       expect(Credential.find(credential_id).hold).to be(false)
     end
+
+    it 'emits after commit when a later save occurs in the same transaction' do
+      expect(WebhookRequest).to receive(:trigger).with(
+        credential.server,
+        'CredentialLocked',
+        hash_including(
+          :credential => hash_including(:uuid => credential.uuid),
+          :reason => 'Transactional hold'
+        )
+      ).once
+
+      Credential.transaction do
+        credential.update!(
+          :hold => true,
+          :hold_at => hold_at,
+          :hold_reason => 'Transactional hold'
+        )
+        credential.update!(:name => 'Renamed after hold')
+      end
+    end
   end
 end

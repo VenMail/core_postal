@@ -12,6 +12,7 @@ RSpec.describe CredentialsController, type: :controller do
   end
 
   it 'adds manual hold metadata and emits one CredentialLocked event' do
+    expect_any_instance_of(Credential).to receive(:with_lock).and_call_original
     expect(WebhookRequest).to receive(:trigger).with(
       server,
       'CredentialLocked',
