@@ -41,6 +41,21 @@ describe 'Server API upstream binding' do
     expect(second.fetch('status')).to eq('success')
     expect(second.fetch('data').fetch('server_id')).to eq(first.fetch('data').fetch('server_id'))
     expect(Server.where(:venmail_organization_id => 8101).count).to eq(1)
+    server = Server.find(first.fetch('data').fetch('server_id'))
+    hook = server.webhooks.find_by!(:name => 'DefaultEventHook')
+    expect(hook.webhook_events.pluck(:event)).to include('CredentialLocked')
+  end
+
+  it 'backfills the credential lock subscription on an idempotent create retry' do
+    first = server_api_post('create', create_params(8109))
+    server = Server.find(first.fetch('data').fetch('server_id'))
+    hook = server.webhooks.find_by!(:name => 'DefaultEventHook')
+    hook.webhook_events.where(:event => 'CredentialLocked').delete_all
+
+    replay = server_api_post('create', create_params(8109))
+
+    expect(replay.fetch('status')).to eq('success')
+    expect(hook.webhook_events.where(:event => 'CredentialLocked').count).to eq(1)
   end
 
   it 'rejects a changed callback URL on an idempotent create retry' do
