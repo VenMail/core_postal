@@ -36,7 +36,7 @@ class Credential < ApplicationRecord
   before_validation :generate_key
   after_update :remember_held_transition
   after_commit :emit_locked_webhook_after_commit, :on => :update
-  after_rollback :clear_held_transition
+  after_rollback :reconcile_held_transition_after_rollback
 
 
   def generate_key
@@ -96,6 +96,20 @@ class Credential < ApplicationRecord
 
   def clear_held_transition
     @emit_locked_webhook_after_commit = false
+  end
+
+  def reconcile_held_transition_after_rollback
+    return unless @emit_locked_webhook_after_commit
+
+    transaction_visible_hold = self.class.where(:id => id).limit(1).pluck(:hold).first
+    unless ActiveModel::Type::Boolean.new.cast(transaction_visible_hold)
+      clear_held_transition
+    end
+  rescue => exception
+    clear_held_transition
+    Rails.logger.error(
+      "Credential: failed to reconcile CredentialLocked rollback for #{uuid} (#{exception.class})"
+    )
   end
 
   def emit_locked_webhook
