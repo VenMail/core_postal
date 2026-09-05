@@ -6,6 +6,7 @@ RSpec.describe CredentialsController, type: :controller do
   let(:user) { server.organization.owner }
 
   before do
+    user.update!(:admin => true)
     allow_any_instance_of(ApplicationController).to receive(:logged_in?).and_return(true)
     allow_any_instance_of(ApplicationController).to receive(:current_user).and_return(user)
   end
