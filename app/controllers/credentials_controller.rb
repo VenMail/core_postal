@@ -25,14 +25,21 @@ class CredentialsController < ApplicationController
   def update
     attributes = params.require(:credential).permit(:name, :key, :hold)
     requested_hold = ActiveModel::Type::Boolean.new.cast(attributes[:hold])
-    if requested_hold && !@credential.hold?
-      attributes = attributes.merge(
-        :hold_at => Time.now,
-        :hold_reason => 'Manual hold by administrator'
-      )
+    updated = if requested_hold
+      @credential.with_lock do
+        unless @credential.hold?
+          attributes = attributes.merge(
+            :hold_at => Time.now,
+            :hold_reason => 'Manual hold by administrator'
+          )
+        end
+        @credential.update(attributes)
+      end
+    else
+      @credential.update(attributes)
     end
 
-    if @credential.update(attributes)
+    if updated
       redirect_to_with_json [organization, @server, :credentials]
     else
       render_form_errors 'edit', @credential
