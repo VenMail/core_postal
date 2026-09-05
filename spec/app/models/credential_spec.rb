@@ -71,5 +71,26 @@ RSpec.describe Credential, type: :model do
         credential.update!(:name => 'Renamed after hold')
       end
     end
+
+    it 'retains an outer hold transition when a later savepoint rolls back' do
+      expect(WebhookRequest).to receive(:trigger).with(
+        credential.server,
+        'CredentialLocked',
+        hash_including(:credential => hash_including(:uuid => credential.uuid))
+      ).once
+
+      Credential.transaction do
+        credential.update!(
+          :hold => true,
+          :hold_at => hold_at,
+          :hold_reason => 'Outer transaction hold'
+        )
+
+        Credential.transaction(:requires_new => true) do
+          credential.update!(:name => 'Rolled-back rename')
+          raise ActiveRecord::Rollback
+        end
+      end
+    end
   end
 end
