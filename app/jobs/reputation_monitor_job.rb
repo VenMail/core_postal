@@ -341,17 +341,7 @@ class ReputationMonitorJob < Postal::Job
       cred.update!(
         hold: true,
         hold_at: Time.now,
-        hold_reason: reason
-      )
-      
-      WebhookRequest.trigger(
-        server,
-        'CredentialLocked',
-        build_webhook_payload(server, cred, reason, {
-          message_count: group_data[:count],
-          bounce_rate: bounce_rate,
-          ai_spam_probability: ai_result['spam_probability']
-        })
+        hold_reason: reason[0, 255]
       )
       
       Rails.logger.warn "ReputationMonitorJob: Suspended credential #{cred.uuid} - #{reason}"

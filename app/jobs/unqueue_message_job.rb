@@ -554,22 +554,7 @@ class UnqueueMessageJob < Postal::Job
                   bulk_threshold = (Postal.config.general.compromise.bulk_hold_threshold rescue 20).to_i
                   
                   if day_compromise_count >= min_patterns_required || bulk_recipient_count > bulk_threshold
-                    cred.update(:hold => true)
-                    WebhookRequest.trigger(
-                      queued_message.server,
-                      'CredentialLocked',
-                      {
-                        :server => queued_message.server.webhook_hash,
-                        :credential => { :id => cred.id, :uuid => cred.uuid, :name => cred.name, :type => cred.type },
-                        :message => queued_message.message.webhook_hash,
-                        :reason => 'Compromise suspected',
-                        :detection_codes => detection.codes,
-                        :detection_descriptions => detection.descriptions,
-                        :count_last_hour => suspicious_unique,
-                        :count_same_day => day_compromise_count,
-                        :bulk_recipient_count => bulk_recipient_count
-                      }
-                    )
+                    hold_credential(cred, 'Compromise suspected')
                     queued_message.message.create_delivery('Held', :details => "Message held due to suspected credential compromise")
                     queued_message.destroy
                     next
@@ -800,19 +785,7 @@ class UnqueueMessageJob < Postal::Job
 
     reason = "High-confidence outbound spam: #{high_spam_count} messages in #{window_seconds / 60} minutes"
     if (credential = queued_message.message.credential) && !credential.hold?
-      credential.update(:hold => true, :hold_at => Time.now, :hold_reason => reason[0, 255])
-      WebhookRequest.trigger(
-        queued_message.server,
-        'CredentialLocked',
-        {
-          :server => queued_message.server.webhook_hash,
-          :credential => { :id => credential.id, :uuid => credential.uuid, :name => credential.name, :type => credential.type },
-          :message => queued_message.message.webhook_hash,
-          :reason => reason,
-          :spam_score => spam_score,
-          :count_last_hour => high_spam_count
-        }
-      )
+      hold_credential(credential, reason)
       log "#{log_prefix} Credential #{credential.id} locked after repeated high-confidence spam."
     end
 
@@ -826,6 +799,22 @@ class UnqueueMessageJob < Postal::Job
   rescue => e
     log "#{log_prefix} Failed to apply high-spam credential/IP lock: #{e.class}: #{e.message}"
     false
+  end
+
+  # Credential's after-commit callback is the only CredentialLocked emitter.
+  # Lock the row so concurrent abuse detectors cannot create two transitions.
+  def hold_credential(credential, reason)
+    credential.with_lock do
+      return false if credential.hold?
+
+      credential.update!(
+        :hold => true,
+        :hold_at => Time.now,
+        :hold_reason => reason.to_s[0, 255]
+      )
+    end
+
+    true
   end
 
   def cached_sender(klass, *args)
