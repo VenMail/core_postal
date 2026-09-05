@@ -34,6 +34,7 @@ class Credential < ApplicationRecord
   serialize :options, Hash
 
   before_validation :generate_key
+  after_commit :emit_locked_webhook, :on => :update, :if => :became_held?
 
 
   def generate_key
@@ -78,6 +79,32 @@ class Credential < ApplicationRecord
   end
 
   private
+
+  def became_held?
+    previous_changes.key?('hold') && previous_changes['hold'] == [false, true]
+  end
+
+  def emit_locked_webhook
+    WebhookRequest.trigger(
+      server,
+      'CredentialLocked',
+      {
+        :server => server.webhook_hash,
+        :credential => {
+          :id => id,
+          :uuid => uuid,
+          :name => name,
+          :type => type
+        },
+        :hold_at => (hold_at || updated_at).utc.iso8601,
+        :reason => hold_reason.to_s[0, 255]
+      }
+    )
+  rescue => exception
+    Rails.logger.error(
+      "Credential: failed to queue CredentialLocked webhook for #{uuid} (#{exception.class})"
+    )
+  end
 
   def validate_key_cannot_be_changed
     return if new_record?
