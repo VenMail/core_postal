@@ -78,4 +78,47 @@ controller :credentials do
       { id: cred.id, uuid: cred.uuid, hold: cred.hold }
     end
   end
+
+  action :release do
+    title "Release SMTP credential"
+    description "Clear an automated or administrative credential hold"
+    param :uuid, "UUID of the credential", type: String
+    returns Hash
+    action do
+      cred = identity.server.credentials.find_by_uuid(params.uuid)
+      error("NotFound", 404) unless cred
+
+      changed = false
+      cred.with_lock do
+        if cred.hold?
+          cred.update!(:hold => false, :hold_at => nil, :hold_reason => nil)
+          changed = true
+        end
+      end
+
+      if changed
+        WebhookRequest.trigger(
+          identity.server,
+          'CredentialUnlocked',
+          {
+            server: identity.server.webhook_hash,
+            credential: {
+              id: cred.id,
+              uuid: cred.uuid,
+              name: cred.name,
+              type: cred.type
+            },
+            reason: 'Released through authenticated control plane'
+          }
+        )
+      end
+
+      {
+        id: cred.id,
+        uuid: cred.uuid,
+        hold: cred.hold,
+        idempotent: !changed
+      }
+    end
+  end
 end
