@@ -224,6 +224,7 @@ class Server < ApplicationRecord
 
   def webhook_hash
     {
+      :id => self.id,
       :uuid => self.uuid,
       :name => self.name,
       :permalink => self.permalink,
