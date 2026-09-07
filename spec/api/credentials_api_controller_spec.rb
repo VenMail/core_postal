@@ -60,4 +60,53 @@ describe 'Credentials API hold events' do
     expect(credential.hold_at).to eq(original_hold_at)
     expect(credential.hold_reason).to eq(original_reason)
   end
+
+  it 'releases a held credential and emits CredentialUnlocked exactly once' do
+    webhook = create(:webhook, :server => server)
+    create(:webhook_event, :webhook => webhook, :event => 'CredentialUnlocked')
+    credential = create(
+      :credential,
+      :server => server,
+      :hold => true,
+      :hold_at => 1.hour.ago,
+      :hold_reason => 'Automated compromise protection'
+    )
+
+    expect do
+      response_payload = credentials_api_post('release', :uuid => credential.uuid)
+      expect(response_payload.fetch('status')).to eq('success')
+      expect(response_payload.fetch('data')).to include(
+        'id' => credential.id,
+        'uuid' => credential.uuid,
+        'hold' => false,
+        'idempotent' => false
+      )
+    end.to change { WebhookRequest.where(:event => 'CredentialUnlocked').count }.by(1)
+
+    credential.reload
+    expect(credential.hold).to eq(false)
+    expect(credential.hold_at).to be_nil
+    expect(credential.hold_reason).to be_nil
+
+    expect do
+      response_payload = credentials_api_post('release', :uuid => credential.uuid)
+      expect(response_payload.fetch('status')).to eq('success')
+      expect(response_payload.fetch('data')).to include(
+        'uuid' => credential.uuid,
+        'hold' => false,
+        'idempotent' => true
+      )
+    end.not_to change { WebhookRequest.where(:event => 'CredentialUnlocked').count }
+  end
+
+  it 'cannot release a credential belonging to another server' do
+    other_server = create(:server)
+    credential = create(:credential, :server => other_server, :hold => true)
+
+    response_payload = credentials_api_post('release', :uuid => credential.uuid)
+
+    expect(response_payload.fetch('status')).to eq('error')
+    expect(response_payload.fetch('data').fetch('code')).to eq('NotFound')
+    expect(credential.reload.hold).to eq(true)
+  end
 end
