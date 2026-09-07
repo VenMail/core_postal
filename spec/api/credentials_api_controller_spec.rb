@@ -32,6 +32,12 @@ describe 'Credentials API hold events' do
       expect(response_payload.fetch('status')).to eq('success')
     end.to change { WebhookRequest.where(:event => 'CredentialLocked').count }.by(1)
 
+    request = WebhookRequest.where(:event => 'CredentialLocked').order(:id).last
+    expect(request.payload.fetch(:server)).to include(
+      :id => server.id,
+      :uuid => server.uuid
+    )
+
     credential.reload
     expect(credential.hold).to eq(true)
     expect(credential.hold_at).not_to be_nil
