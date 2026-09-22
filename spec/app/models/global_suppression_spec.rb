@@ -191,7 +191,7 @@ RSpec.describe GlobalSuppression, type: :model do
         expect(ban.reason).to eq('Manual IP ban')
       end
 
-      it 'deletes held and queued messages from the banned sender IP' do
+      it 'preserves held and queued messages as incident evidence when banning an IP' do
         with_global_server do |server|
           domain = create(:domain, :owner => server)
           Route.create!(:server => server, :domain => domain, :name => 'test', :mode => 'Accept', :spam_mode => 'Mark')
@@ -217,18 +217,18 @@ RSpec.describe GlobalSuppression, type: :model do
           expect(server.queued_messages.where(:message_id => queued_message.id).exists?).to be true
           expect(server.queued_messages.where(:message_id => other_message.id).exists?).to be true
 
-          result = GlobalSuppression.ban_ip('204.10.162.167', reason: 'Test purge')
+          result = GlobalSuppression.ban_ip('204.10.162.167', reason: 'Incident containment')
 
           expect(result).to be_truthy
-          expect(server.queued_messages.where(:message_id => queued_message.id)).to be_empty
-          expect { server.message_db.message(held_message.id) }.to raise_error(Postal::MessageDB::Message::NotFound)
-          expect { server.message_db.message(queued_message.id) }.to raise_error(Postal::MessageDB::Message::NotFound)
+          expect(server.queued_messages.where(:message_id => queued_message.id).exists?).to be true
+          expect(server.message_db.message(held_message.id).id).to eq(held_message.id)
+          expect(server.message_db.message(queued_message.id).id).to eq(queued_message.id)
           expect(server.message_db.message(other_message.id).id).to eq(other_message.id)
           expect(server.queued_messages.where(:message_id => other_message.id).exists?).to be true
         end
       end
 
-      it 'purges only the banned actor when messages share a transport gateway' do
+      it 'bans only the actor when messages share a transport gateway' do
         with_global_server do |server|
           domain = create(:domain, :owner => server)
           Route.create!(:server => server, :domain => domain, :name => 'test', :mode => 'Accept', :spam_mode => 'Mark')
@@ -247,9 +247,11 @@ RSpec.describe GlobalSuppression, type: :model do
           banned_actor_message = create_actor_message.call('204.10.162.167', 'banned@example.com')
           other_actor_message = create_actor_message.call('203.0.113.10', 'other@example.com')
 
-          GlobalSuppression.ban_ip('204.10.162.167', :reason => 'Actor-only purge')
+          GlobalSuppression.ban_ip('204.10.162.167', :reason => 'Actor-only containment')
 
-          expect { server.message_db.message(banned_actor_message.id) }.to raise_error(Postal::MessageDB::Message::NotFound)
+          expect(GlobalSuppression.ip_banned?(banned_actor_message.sender_ip)).to be true
+          expect(GlobalSuppression.ip_banned?(other_actor_message.sender_ip)).to be false
+          expect(server.message_db.message(banned_actor_message.id).id).to eq(banned_actor_message.id)
           expect(server.message_db.message(other_actor_message.id).sender_ip).to eq('203.0.113.10')
         end
       end

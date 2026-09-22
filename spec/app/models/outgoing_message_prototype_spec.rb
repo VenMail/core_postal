@@ -38,6 +38,7 @@ describe OutgoingMessagePrototype do
 
       expect(stored.transport_peer_ip).to eq(gateway_ip)
       expect(stored.external_actor_ip).to eq(actor_ip)
+      expect(stored.verified_sender_ip).to eq(actor_ip)
       expect(stored.sender_ip).to eq(actor_ip)
       expect(stored.raw_headers).to include(gateway_ip)
       expect(stored.raw_headers).not_to include(actor_ip)
@@ -58,6 +59,7 @@ describe OutgoingMessagePrototype do
       expect(stored.external_actor_ip).to be_nil
       expect(stored.transport_peer_ip).to be_nil
       expect(stored.sender_ip).to eq('203.0.113.81')
+      expect(stored.verified_sender_ip).to be_nil
     end
   end
 

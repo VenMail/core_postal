@@ -77,4 +77,25 @@ RSpec.describe Postal::SMTPServer::Client do
     expect(client.instance_variable_get(:@authenticated_user_email)).to be_nil
     expect(client.instance_variable_get(:@domain)).to be_nil
   end
+
+  it 'records the authenticated SMTP peer IP on each outgoing message' do
+    sender_domain = double('sender domain', :name => 'example.test', :id => 5)
+    outbound_server = double('outbound server', :block_outgoing_without_verified_route? => false)
+    credential = double('credential', :id => 7, :server => outbound_server)
+    message = double('outgoing message').as_null_object
+    outbound_db = double('message database', :new_message => message)
+    allow(outbound_server).to receive(:authenticated_sender_from_headers)
+      .and_return(:domain => sender_domain, :address => address)
+    allow(outbound_server).to receive(:message_db).and_return(outbound_db)
+    allow(client).to receive(:client_ip_banned?).and_return(false)
+    client.instance_variable_set(:@credential, credential)
+    client.instance_variable_set(:@ip_address, '204.10.162.167')
+    client.instance_variable_set(:@mail_from, address)
+    client.instance_variable_set(:@data, "From: #{address}\r\n\r\nbody".force_encoding('BINARY'))
+    client.instance_variable_set(:@headers, { 'from' => [address] })
+    client.instance_variable_set(:@recipients, [[:credential, 'recipient@example.org', outbound_server, {}]])
+
+    expect(message).to receive(:transport_peer_ip=).with('204.10.162.167')
+    expect(client.send(:finished)).to eq('250 OK')
+  end
 end

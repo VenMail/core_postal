@@ -317,9 +317,11 @@
   end
 
   def ban_ip
-    ip = params[:ip].to_s.strip
+    # Never accept a client-supplied IP here. Legacy Received headers can be
+    # forged, so only stored submission provenance can be used for a ban.
+    ip = @message.verified_sender_ip.to_s.strip
     if ip.blank?
-      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "No IP provided to ban."
+      redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "No verified sender IP is available for blocking."
       return
     end
 
@@ -339,7 +341,7 @@
     end
 
     if GlobalSuppression.ban_ip(ip, reason: "Manual IP ban from message view by #{actor_email}")
-      redirect_to_with_json redirect_target, :notice => "IP #{ip} added to global suppression list. Matching held and queued messages were deleted."
+      redirect_to_with_json redirect_target, :notice => "IP #{ip} blocked. Queued messages from this source will be held; existing messages remain available for investigation. A delivery already in progress may complete."
     else
       redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "Failed to ban IP #{ip}."
     end

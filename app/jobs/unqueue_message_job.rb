@@ -40,7 +40,7 @@ class UnqueueMessageJob < Postal::Job
               next
             end
 
-            if delete_if_sender_ip_banned(queued_message, log_prefix)
+            if hold_if_sender_ip_banned(queued_message, log_prefix)
               next
             end
 
@@ -671,6 +671,12 @@ class UnqueueMessageJob < Postal::Job
                 next
               end
 
+              # A source ban may have been added during inspection or limit
+              # checks. Recheck just before handing mail to the transport.
+              if hold_if_sender_ip_banned(queued_message, log_prefix)
+                next
+              end
+
               # Send the outgoing message to the SMTP sender
               begin
                 if @fixed_result
@@ -747,17 +753,17 @@ class UnqueueMessageJob < Postal::Job
 
   private
 
-  def delete_if_sender_ip_banned(queued_message, log_prefix)
-    sender_ip = queued_message.message&.sender_ip
+  def hold_if_sender_ip_banned(queued_message, log_prefix)
+    sender_ip = queued_message.message&.verified_sender_ip
     return false unless sender_ip.present? && GlobalSuppression.ip_banned?(sender_ip)
 
-    log "#{log_prefix} Source IP #{sender_ip} is globally banned. Deleting queued message and stored message."
+    log "#{log_prefix} Source IP #{sender_ip} is globally banned. Holding queued message and preserving evidence."
+    queued_message.message.create_delivery('Held', :details => 'Source IP is globally banned pending abuse investigation.')
     queued_message.destroy
-    queued_message.message.delete
     true
   rescue => e
-    log "#{log_prefix} Failed to delete message from globally banned source IP: #{e.class}: #{e.message}"
-    false
+    log "#{log_prefix} Failed to hold message from globally banned source IP: #{e.class}: #{e.message}"
+    raise
   end
 
   def lock_credential_or_ip_for_high_spam(queued_message, log_prefix)
@@ -789,16 +795,16 @@ class UnqueueMessageJob < Postal::Job
       log "#{log_prefix} Credential #{credential.id} locked after repeated high-confidence spam."
     end
 
-    if (sender_ip = queued_message.message.sender_ip)
+    if (sender_ip = queued_message.message.verified_sender_ip)
       if GlobalSuppression.ban_ip(sender_ip, reason: reason)
         log "#{log_prefix} Sender IP #{sender_ip} added to global suppression after repeated high-confidence spam."
-        return delete_if_sender_ip_banned(queued_message, log_prefix)
+        return hold_if_sender_ip_banned(queued_message, log_prefix)
       end
     end
     false
   rescue => e
     log "#{log_prefix} Failed to apply high-spam credential/IP lock: #{e.class}: #{e.message}"
-    false
+    raise
   end
 
   # Credential's after-commit callback is the only CredentialLocked emitter.

@@ -342,12 +342,22 @@ module Postal
       #
       # Extract sender IP from Received headers (best-effort)
       #
-      def sender_ip
+      # Only structured provenance is suitable for access-control decisions.
+      # Received headers are retained as a display-only legacy fallback because
+      # the sender can supply or forge them.
+      def verified_sender_ip
         explicit = self.external_actor_ip.to_s.strip
         return explicit unless explicit.empty?
 
         peer = self.transport_peer_ip.to_s.strip
         return peer unless peer.empty?
+
+        nil
+      end
+
+      def sender_ip
+        verified = verified_sender_ip
+        return verified if verified
 
         received = headers['received'] || []
         text = Array(received).join("\n")

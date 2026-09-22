@@ -10,6 +10,7 @@ Status: investigation in progress. Do not report the server as remediated or req
 - The message impersonated DHL and linked to a payment lure at `syc.rnpp.ci`.
 - Netcup says it temporarily disabled the VPS. Its notice requires a maintenance-window request and subsequent findings through CCP's Abuse Notices > Statement. A server may only be available in rescue mode.
 - The signed-in CCP product list separately shows `91.204.44.28` as an additional Nürnberg IPv4 on this Netcup account and the named VPS as another Nürnberg product. This confirms account ownership of the reported egress IP, but not the sending process or how that IP was assigned at message time.
+- At 2026-09-22 14:23 Europe/Berlin, we requested urgent web-only restoration with outbound SMTP ports 25/465/587 blocked, or the earliest rescue/maintenance window from 17:00 to 21:00 Europe/Berlin. This request is pending Netcup's response. The application remained unreachable in the last check; do not call service restored until an independent HTTPS check succeeds.
 
 SPF and DKIM pass indicate that authorized sending infrastructure/signing was used; they do not identify the actor. The headers alone do not distinguish Postal SMTP, Postal API, the Venmail app, compromised credentials, or host-level compromise. The outbound IP is not the submitter's IP.
 
@@ -20,6 +21,14 @@ SPF and DKIM pass indicate that authorized sending infrastructure/signing was us
 The recheck closes the ordinary long-lived-session bypass, but it is not an atomic guarantee against a mailbox being disabled in the interval between the completion check and message persistence, nor against already-queued messages. A durable guarantee would require binding mailbox identity to each message and enforcing revocation at queue/delivery time with coordinated state changes. Avoid a per-recipient SMTP check without an atomic write: it could persist some recipients, return an error, and cause duplicate delivery when the client retries.
 
 This is a genuine revocation flaw, but there is no evidence yet that the reported phish used an inactive mailbox. This patch alone is not incident remediation.
+
+## Further containment hardening under review
+
+Core's `GlobalSuppression.ban_ip` currently deletes queued and held message records as a side effect. The queue worker also deletes a stored message when its sender IP is banned. That destroys attribution evidence during an incident. A follow-up patch changes bans to leave existing messages intact and makes the worker hold, not delete, queued mail from the banned source. It also records the SMTP client IP as structured message provenance on outbound SMTP submissions and restricts automatic IP enforcement to structured submission provenance rather than spoofable legacy `Received` headers. The worker rechecks bans immediately before delivery, though a fully atomic ban-versus-send guarantee would require additional coordination. These changes are not deployed merely because they are present in this repository.
+
+Do not ban `91.204.44.28` as a source: it is the reported *egress* IP. Use the exact external submitting IP from authenticated SMTP/API records, and check for a shared gateway before applying any source-IP ban. Hold the implicated credential or mailbox and preserve the submission logs and message rows first.
+
+The existing Venmail admin/Telegram outbound-review route only covers messages composed in the Venmail app. Direct Postal SMTP/API mail can bypass it. The durable mass-mail gate must run in Core before provider delivery, retain exact queued content and per-recipient evidence, emit a signed review event, and require an idempotent, narrowly authenticated release decision from the existing Venmail review/Telegram interface. Approval must bind the immutable content, sender identity and recipient batch; a generic credential unlock is not message approval. The affected submission path and volume must be established from production evidence before selecting safe thresholds and rollout controls.
 
 ## Forensics required during maintenance access
 
