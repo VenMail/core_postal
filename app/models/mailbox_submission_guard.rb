@@ -42,7 +42,7 @@ class MailboxSubmissionGuard < ApplicationRecord
     end
 
     def hard_fail_limit_for(server:, domain:)
-      configured = positive_limit(server, :mailbox_hard_fail_limit_per_day)
+      configured = configured_limit(server, :mailbox_hard_fail_limit_per_day)
       return configured if configured
       return nil unless protected_domain?(domain)
 
@@ -87,10 +87,10 @@ class MailboxSubmissionGuard < ApplicationRecord
 
     def effective_limits(server, domain)
       configured = {
-        :domain_recipient_limit_per_minute => positive_limit(server, :mailbox_domain_recipient_limit_per_minute),
-        :mailbox_recipient_limit_per_message => positive_limit(server, :mailbox_recipient_limit_per_message),
-        :mailbox_submission_limit_per_hour => positive_limit(server, :mailbox_submission_limit_per_hour),
-        :mailbox_recipient_limit_per_day => positive_limit(server, :mailbox_recipient_limit_per_day)
+        :domain_recipient_limit_per_minute => configured_limit(server, :mailbox_domain_recipient_limit_per_minute),
+        :mailbox_recipient_limit_per_message => configured_limit(server, :mailbox_recipient_limit_per_message),
+        :mailbox_submission_limit_per_hour => configured_limit(server, :mailbox_submission_limit_per_hour),
+        :mailbox_recipient_limit_per_day => configured_limit(server, :mailbox_recipient_limit_per_day)
       }
       return configured if configured.values.any?
       return nil unless protected_domain?(domain)
@@ -103,9 +103,12 @@ class MailboxSubmissionGuard < ApplicationRecord
       }
     end
 
-    def positive_limit(server, attribute)
-      value = server.public_send(attribute).to_i
-      value.positive? ? value : nil
+    def configured_limit(server, attribute)
+      raw_value = server.public_send(attribute)
+      return nil if raw_value.nil?
+
+      value = raw_value.to_i
+      value.positive? ? value : 1
     end
 
     def exceeds?(value, limit)
