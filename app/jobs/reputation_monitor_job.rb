@@ -489,7 +489,7 @@ class ReputationMonitorJob < Postal::Job
           spam_score = message.spam_score.to_f
           next unless spam_score.finite? && spam_score >= SPAM_SCORE_THRESHOLD
 
-          ip = GlobalSuppression.normalize_ip_address_string(message.sender_ip)
+          ip = GlobalSuppression.normalize_ip_address_string(message.verified_sender_ip)
           next if ip.blank? || whitelisted_ip?(ip)
 
           ip_groups[ip] << spam_score
@@ -622,7 +622,7 @@ class ReputationMonitorJob < Postal::Job
           from_domain = extract_domain(from_email)
           
           if reply_to_domain && from_domain && reply_to_domain != from_domain
-            ip = GlobalSuppression.normalize_ip_address_string(message.sender_ip)
+            ip = GlobalSuppression.normalize_ip_address_string(message.verified_sender_ip)
             next if ip.blank?
             
             mismatch_ips[ip][:count] += 1

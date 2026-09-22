@@ -17,10 +17,11 @@ class OutgoingMessagePrototype
   attr_accessor :credential
   attr_accessor :bounce
 
-  def initialize(server, ip, source_type, attributes, external_actor_ip: nil)
+  def initialize(server, ip, source_type, attributes, external_actor_ip: nil, trusted_gateway: false)
     @server = server
     @ip = ip
     @external_actor_ip = external_actor_ip
+    @trusted_gateway = trusted_gateway
     @source_type = source_type
     @custom_headers = {}
     @attachments = []
@@ -206,6 +207,7 @@ class OutgoingMessagePrototype
     message.bounce = @bounce ? 1 : 0
     message.transport_peer_ip = @ip
     message.external_actor_ip = @external_actor_ip
+    message.trusted_gateway = @trusted_gateway ? 1 : 0
     message.save
     {:id => message.id, :token => message.token}
   end

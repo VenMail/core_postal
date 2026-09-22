@@ -75,6 +75,19 @@ RSpec.describe ReputationMonitorJob do
         'server_id' => 81
       )
     end
+
+    it 'does not auto-block an IP found only in unverified legacy headers' do
+      message_db = double('message_db')
+      server = double('server', :id => 81, :message_db => message_db)
+      relation = double('server_relation')
+      allow(Server).to receive(:where).with(:suspended_at => nil).and_return(relation)
+      allow(relation).to receive(:find_each).and_yield(server)
+      allow(message_db).to receive(:select).and_return([
+        { 'id' => 1, 'spam_score' => 20.0, 'external_actor_ip' => nil, 'transport_peer_ip' => nil }
+      ])
+
+      expect(described_class.new('test-id').send(:find_suspicious_ips, Time.at(0))).to be_empty
+    end
   end
 
   describe '#whitelisted_ip?' do

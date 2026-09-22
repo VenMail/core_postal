@@ -40,7 +40,9 @@ class GlobalSuppression < ApplicationRecord
       suppression.save!
     end
 
-    purge_messages_for_ip(normalized_ip)
+    # A ban blocks new submissions and prevents queued delivery. Do not erase
+    # held or queued mail here: those records are needed to identify the
+    # credential, source IP, and recipient scope during an abuse investigation.
     suppression
   end
   
@@ -130,7 +132,7 @@ class GlobalSuppression < ApplicationRecord
 
     server.queued_messages.find_each do |queued_message|
       message = queued_message.message
-      next unless message && ip_matches?(message.sender_ip, normalized_ip)
+      next unless message && ip_matches?(message.verified_sender_ip, normalized_ip)
 
       queued_message.destroy
       totals[:queued] += 1
@@ -143,7 +145,7 @@ class GlobalSuppression < ApplicationRecord
 
     server.message_db.messages(:where => { :held => 1 }).each do |message|
       next if deleted_message_ids[message.id]
-      next unless ip_matches?(message.sender_ip, normalized_ip)
+      next unless ip_matches?(message.verified_sender_ip, normalized_ip)
 
       if queued_message = message.queued_message
         queued_message.destroy

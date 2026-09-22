@@ -68,7 +68,8 @@ controller :send do
         provenance.transport_peer_ip || request.ip,
         'api',
         attributes,
-        :external_actor_ip => provenance.external_actor_ip
+        :external_actor_ip => provenance.external_actor_ip,
+        :trusted_gateway => provenance.trusted_gateway
       )
       message.credential = identity
       if message.valid?
@@ -126,6 +127,7 @@ controller :send do
         message.bounce = params.bounce ? 1 : 0
         message.transport_peer_ip = provenance.transport_peer_ip || request.ip
         message.external_actor_ip = provenance.external_actor_ip
+        message.trusted_gateway = provenance.trusted_gateway ? 1 : 0
         message.save
         result[:message_id] = message.message_id if result[:message_id].nil?
         result[:messages][rcpt_to] = {:id => message.id, :token => message.token}

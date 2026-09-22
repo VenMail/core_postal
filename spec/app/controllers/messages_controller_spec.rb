@@ -1,6 +1,50 @@
 require 'rails_helper'
 
 describe MessagesController, type: :controller do
+  describe '#ban_ip' do
+    it 'ignores a submitted IP and bans only the verified submission source' do
+      with_global_server do |server|
+        user = server.organization.owner
+        user.update!(:admin => true)
+        allow_any_instance_of(ApplicationController).to receive(:logged_in?).and_return(true)
+        allow_any_instance_of(ApplicationController).to receive(:current_user).and_return(user)
+        message = create_plain_text_message(server, 'Test message', 'recipient@example.com')
+        message.update(:transport_peer_ip => '204.10.162.167')
+
+        post :ban_ip, params: {
+          org_permalink: server.organization.permalink,
+          server_id: server.permalink,
+          id: message.id,
+          ip: '203.0.113.80'
+        }
+
+        expect(GlobalSuppression.ip_banned?('204.10.162.167')).to be true
+        expect(GlobalSuppression.ip_banned?('203.0.113.80')).to be false
+      end
+    end
+
+    it 'does not ban an IP from unverified legacy headers' do
+      with_global_server do |server|
+        user = server.organization.owner
+        user.update!(:admin => true)
+        allow_any_instance_of(ApplicationController).to receive(:logged_in?).and_return(true)
+        allow_any_instance_of(ApplicationController).to receive(:current_user).and_return(user)
+        message = create_plain_text_message(server, 'Test message', 'recipient@example.com')
+        message.update(:trusted_gateway => nil)
+
+        post :ban_ip, params: {
+          org_permalink: server.organization.permalink,
+          server_id: server.permalink,
+          id: message.id,
+          ip: '203.0.113.80'
+        }
+
+        expect(GlobalSuppression.ip_banned?('203.0.113.80')).to be false
+        expect(flash[:alert]).to include('verified sender IP')
+      end
+    end
+  end
+
   describe '#recall' do
     let(:phrase) { 'Social Security' }
     let(:hours) { 48 }

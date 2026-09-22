@@ -38,6 +38,8 @@ describe OutgoingMessagePrototype do
 
       expect(stored.transport_peer_ip).to eq(gateway_ip)
       expect(stored.external_actor_ip).to eq(actor_ip)
+      expect(stored.trusted_gateway).to eq(0)
+      expect(stored.verified_sender_ip).to eq(actor_ip)
       expect(stored.sender_ip).to eq(actor_ip)
       expect(stored.raw_headers).to include(gateway_ip)
       expect(stored.raw_headers).not_to include(actor_ip)
@@ -58,6 +60,24 @@ describe OutgoingMessagePrototype do
       expect(stored.external_actor_ip).to be_nil
       expect(stored.transport_peer_ip).to be_nil
       expect(stored.sender_ip).to eq('203.0.113.81')
+      expect(stored.verified_sender_ip).to be_nil
+    end
+  end
+
+  it 'does not treat an ambiguous pre-migration peer as a verified submitter' do
+    with_global_server do |server|
+      message = server.message_db.new_message
+      message.scope = 'outgoing'
+      message.rcpt_to = 'test@example.com'
+      message.mail_from = 'sender@example.com'
+      message.raw_message = "From: sender@example.com\r\nSubject: Legacy peer\r\n\r\nbody"
+      message.transport_peer_ip = '203.0.113.81'
+      message.save
+
+      stored = server.message_db.message(message.id)
+
+      expect(stored.trusted_gateway).to be_nil
+      expect(stored.verified_sender_ip).to be_nil
     end
   end
 
