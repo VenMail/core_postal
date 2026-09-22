@@ -99,4 +99,35 @@ RSpec.describe Postal::SMTPServer::Client do
     expect(message).to receive(:trusted_gateway=).with(0)
     expect(client.send(:finished)).to eq('250 OK')
   end
+
+  it 'persists the authenticated mailbox on direct mailbox SMTP messages' do
+    guard = Class.new
+    guard.const_set(:LimitExceeded, Class.new(StandardError))
+    stub_const('MailboxSubmissionGuard', guard)
+    allow(MailboxSubmissionGuard).to receive(:reserve!)
+    allow(mail_users).to receive(:find).with(address).and_return('active' => true)
+    allow(server).to receive(:block_outgoing_without_verified_route?).and_return(false)
+
+    direct_domain = double('direct domain', name: 'example.test', id: 5, owner: server)
+    message = double('direct outgoing message').as_null_object
+    allow(message_db).to receive(:new_message).and_return(message)
+    client.instance_variable_set(:@server, server)
+    client.instance_variable_set(:@domain, direct_domain)
+    client.instance_variable_set(:@authenticated_user_email, address)
+    client.instance_variable_set(:@ip_address, '204.10.162.167')
+    client.instance_variable_set(:@mail_from, address)
+    client.instance_variable_set(:@data, "From: #{address}\r\n\r\nbody".force_encoding('BINARY'))
+    client.instance_variable_set(:@headers, { 'from' => [address] })
+    client.instance_variable_set(:@recipients, [[:credential, 'recipient@example.org', server, {}]])
+
+    expect(MailboxSubmissionGuard).to receive(:reserve!).with(
+      server: server,
+      domain: 'example.test',
+      mailbox: address,
+      recipients: 1
+    )
+    expect(message).to receive(:authenticated_mailbox=).with(address)
+
+    expect(client.send(:finished)).to eq('250 OK')
+  end
 end
