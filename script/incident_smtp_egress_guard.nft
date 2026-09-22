@@ -1,0 +1,8 @@
+# A separate inet table runs before Docker's filter chains. The replacement is
+# one nftables transaction, so an invalid update leaves the prior guard intact.
+destroy table inet venmail_smtp_egress
+add table inet venmail_smtp_egress
+add chain inet venmail_smtp_egress output { type filter hook output priority -100; policy accept; }
+add chain inet venmail_smtp_egress forward { type filter hook forward priority -100; policy accept; }
+add rule inet venmail_smtp_egress output oifname "eth0" tcp dport { 25, 465, 587 } reject
+add rule inet venmail_smtp_egress forward oifname "eth0" tcp dport { 25, 465, 587 } reject

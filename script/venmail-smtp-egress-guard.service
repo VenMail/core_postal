@@ -1,13 +1,13 @@
 [Unit]
 Description=Temporary Venmail outbound SMTP containment for Netcup incident
-After=docker.service
-Requires=docker.service
+Before=docker.service
+RefuseManualStop=yes
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/sbin/venmail-smtp-egress-guard start
-ExecStop=/usr/local/sbin/venmail-smtp-egress-guard stop
+ExecStart=/usr/sbin/nft -f /etc/venmail-smtp-egress-guard.nft
+ExecStop=/usr/sbin/nft destroy table inet venmail_smtp_egress
 
 [Install]
 WantedBy=multi-user.target
