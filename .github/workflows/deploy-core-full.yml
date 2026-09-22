@@ -1,0 +1,123 @@
+name: Deploy reviewed full Core release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact tested main commit SHA to deploy
+        required: true
+        type: string
+      approval:
+        description: Enter APPROVE_CORE_FULL_ROLLOUT followed by the exact SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-22.04
+    outputs:
+      release_sha: ${{ steps.verify.outputs.release_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - id: verify
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          APPROVAL: ${{ inputs.approval }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_SHA" in
+            *[!0-9a-f]*|'') echo 'release_sha must be a full lowercase commit SHA.' >&2; exit 1 ;;
+          esac
+          test "${#RELEASE_SHA}" -eq 40
+          test "$RELEASE_SHA" = "$(git rev-parse HEAD)"
+          test "$APPROVAL" = "APPROVE_CORE_FULL_ROLLOUT $RELEASE_SHA"
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: verify-release
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: core-production-full-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify-release.outputs.release_sha }}
+          fetch-depth: 1
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Confirm immutable release image exists
+        env:
+          RELEASE_SHA: ${{ needs.verify-release.outputs.release_sha }}
+        run: docker pull "ghcr.io/venmail/postal:sha-${RELEASE_SHA}"
+      - name: Deploy tested Core services only
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        env:
+          RELEASE_SHA: ${{ needs.verify-release.outputs.release_sha }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.SSH_HOST_LIVE }}
+          port: ${{ secrets.SSH_PORT_LIVE }}
+          username: ${{ secrets.SSH_USERNAME_LIVE }}
+          key: ${{ secrets.SSH_PRIVATE_KEY_LIVE }}
+          fingerprint: 'SHA256:yIYa/c7FcIhzqf+STrzs7+sxzv2ZOt/nPCJy1JXvfHU'
+          envs: RELEASE_SHA,GHCR_USERNAME,GHCR_TOKEN
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            case "${RELEASE_SHA:-}" in
+              *[!0-9a-f]*|'') echo 'Invalid immutable release SHA.' >&2; exit 1 ;;
+            esac
+            test "${#RELEASE_SHA}" -eq 40
+
+            compose_file=/opt/venmail/install/docker-compose.yml
+            image_repo=ghcr.io/venmail/postal
+            image_tag="${image_repo}:sha-${RELEASE_SHA}"
+            live_tag="${image_repo}:latest"
+            test -f "$compose_file"
+
+            registry_config="$(mktemp -d)"
+            export DOCKER_CONFIG="$registry_config"
+            trap 'rm -rf "$registry_config"' EXIT
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin >/dev/null
+            docker pull "$image_tag"
+            expected_image_id="$(docker image inspect "$image_tag" --format '{{.Id}}')"
+            test -n "$expected_image_id"
+
+            lock_dir="${HOME}/.cache"
+            mkdir -p "$lock_dir"
+            (
+              flock -w 1800 9
+              docker tag "$image_tag" "$live_tag"
+              # Includes the main database and every Postal message-database migration.
+              docker compose -f "$compose_file" run --rm --no-deps web sh -lc 'RAILS_ENV=production bin/rails db:migrate'
+              # This deliberately names Core services only. It never touches Venmail's
+              # application, Horizon, or any unrelated compose dependency.
+              docker compose -f "$compose_file" up -d --no-deps --no-build web core worker cron requeuer
+
+              for container in install-web-1 install-core-1 install-worker-1 install-cron-1 install-requeuer-1; do
+                for attempt in $(seq 1 30); do
+                  running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)"
+                  actual_image_id="$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)"
+                  if [ "$running" = true ] && [ "$actual_image_id" = "$expected_image_id" ]; then
+                    break
+                  fi
+                  if [ "$attempt" -eq 30 ]; then
+                    echo "$container did not reach the expected release image." >&2
+                    exit 1
+                  fi
+                  sleep 2
+                done
+              done
+            ) 9>"$lock_dir/venmail-core-full-deploy.lock"
