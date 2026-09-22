@@ -37,4 +37,12 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
 
     expect(MailboxSubmissionGuard.count).to eq(0)
   end
+
+  it 'enforces an explicit server mailbox limit for every authenticated mailbox domain' do
+    server.update!(mailbox_recipient_limit_per_message: 1)
+
+    expect do
+      described_class.reserve!(server: server, domain: 'customer.example', mailbox: 'sender@customer.example', recipients: 2, now: now)
+    end.to raise_error(MailboxSubmissionGuard::LimitExceeded) { |error| expect(error.reason).to eq(:recipient_limit_per_message) }
+  end
 end
