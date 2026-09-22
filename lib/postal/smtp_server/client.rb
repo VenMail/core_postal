@@ -299,7 +299,7 @@ module Postal
 
         # Query the database to retrieve the hashed password for the provided email
         user = server.message_db.mail_user.find(email)
-        return false unless user
+        return false unless active_mail_user?(user)
 
         hashed_password = user['password']
         return false unless hashed_password
@@ -583,6 +583,10 @@ module Postal
         return '503 HELO/EHLO, MAIL FROM and RCPT TO before sending data' unless in_state(:rcpt_to_received)
         return '550 Your IP address has been banned' if client_ip_banned?('DATA')
 
+        if @authenticated_user_email && !active_mail_user?(@server.message_db.mail_user.find(@authenticated_user_email))
+          return revoke_mailbox_authentication
+        end
+
         @data = ''.force_encoding('BINARY')
         @headers = {}
         @receiving_headers = true
@@ -649,6 +653,10 @@ module Postal
           transaction_reset
           @state = :welcomed
           return '550 Your IP address has been banned'
+        end
+
+        if @authenticated_user_email && !active_mail_user?(@server.message_db.mail_user.find(@authenticated_user_email))
+          return revoke_mailbox_authentication
         end
 
         if @data.bytesize > Postal.config.smtp_server.max_message_size.megabytes.to_i
@@ -859,6 +867,23 @@ module Postal
         return nil unless email =~ /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
 
         email
+      end
+
+      def active_mail_user?(user)
+        return false unless user
+
+        active = user['active']
+        active.nil? || active == true || active.to_s == '1'
+      end
+
+      def revoke_mailbox_authentication
+        transaction_reset
+        @state = :welcomed
+        @authenticated_user_email = nil
+        @domain = nil
+        @server = nil
+        @credential = nil
+        '535 Authenticated mailbox is inactive'
       end
 
       def client_ip_banned?(stage)
