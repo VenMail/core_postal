@@ -1,6 +1,58 @@
 # Netcup suspension: reported DHL phishing from Venmail Postal
 
-Status: investigation in progress. Do not report the server as remediated or request unrestricted reactivation until the sending path and scope have been verified.
+Status: production contained, durable review gate not deployed. Do not remove the
+outbound SMTP egress guard or report the incident as fully remediated until the
+Core review/release path has been deployed and verified.
+
+## Verified after Netcup reactivation (2026-09-22)
+
+- SSH, Postal containers, and `m.venmail.io` were reachable again at 15:56 UTC.
+  The web endpoint returned HTTP 302. No production containers were restarted
+  or reloaded by this investigation.
+- Postal server 61 (`Venia Cloud`, domain 50) holds the reported Message-ID as
+  message 261274, outgoing from `shipmail@venia.cloud` to `vandam@gbg.bg`,
+  created at 03:50:38 UTC on September 20. It was soft-failed and then marked
+  sent at 03:57:21 UTC. Its credential ID is NULL.
+- The same sender has 16,520 outbound recipient records from September 20-21:
+  9,493 marked sent, 5,304 hard-failed, and 1,723 held. No new messages from
+  that sender appeared in the September 22 query after restoration. The abusive
+  burst reached 144 distinct recipients in a five-minute bucket; measured
+  spam scores in nearby buckets ranged from 0 to 10.2, below the hard-fail
+  threshold of 18. This is why content scoring did not reliably stop the burst.
+- Postal's own SMTP-generated `Received` headers on sampled records identify
+  direct public peers `47.236.178.59` and `196.89.21.76`. Production
+  `proxy_protocol` is false, so these are not claimed PROXY-protocol actors.
+  This is sample-based attribution; preserve the raw headers and database.
+- `maildb.mail_users` entry 8224 for `shipmail@venia.cloud` was active and last
+  authenticated on September 21. The Venmail application's current employees,
+  users, and organization-1 mail records have no matching `shipmail` identity or
+  composed send. This points to direct mailbox SMTP submission, not the app's
+  outbound-review path. The mailbox was deactivated (`active=0`) by exact ID;
+  subsequent readback confirmed the change. Do not reset its password or
+  delete the row before evidence capture.
+- `47.236.178.59` and `196.89.21.76` were entered as exact GlobalSuppression
+  source bans and read back as active. They are **not** the reported egress IP
+  `91.204.44.28`. The old production `ban_ip` method can erase held/queued
+  evidence, so the rows were inserted directly and no purge method was called.
+- The shared `venia.cloud` mail-user table has 8,009 entries, 8,007 active,
+  while the current app has no employee assigned to that domain. Only one of
+  these users had a recorded September 19-or-later `last_login` in that table.
+  This mismatch requires a separate account-ownership reconciliation. Do not
+  bulk-disable the other accounts without establishing their provisioning path.
+- A harmless TCP connect to an external SMTP server on port 25 succeeded after
+  restoration: provider-level outbound SMTP was not blocked. A reversible
+  host firewall guard now rejects outbound TCP 25/465/587 on `eth0` in both
+  `OUTPUT` and `DOCKER-USER`, IPv4 and IPv6, with the comment
+  `venmail-netcup-phishing-20260922-temporary-egress`. Host and Postal worker
+  connect probes then returned connection refused while the web endpoint still
+  returned HTTP 302. Inbound SMTP is not matched by the `-o eth0` rule.
+- The guard is installed as `/usr/local/sbin/venmail-smtp-egress-guard` with
+  `venmail-smtp-egress-guard.service`, enabled and active, to survive a reboot.
+  Source files are `script/incident_smtp_egress_guard.sh` and
+  `script/venmail-smtp-egress-guard.service`. It pauses legitimate external
+  email delivery as well as abuse. Do not disable it merely because the server
+  or containers are healthy; first verify the exact-content admin/Telegram
+  approval path and a controlled test of direct SMTP/API traffic.
 
 ## Known from the abuse notice
 
@@ -8,9 +60,9 @@ Status: investigation in progress. Do not report the server as remediated or req
 - The reported Message-ID is `1f99088a-b76a-64b5-c3af-15e1d38713d7@venia.cloud`.
 - The recipient's headers identify outbound IP `91.204.44.28` and `pxb.mail.venmail.io`; SPF and DKIM reportedly passed for `venia.cloud`.
 - The message impersonated DHL and linked to a payment lure at `syc.rnpp.ci`.
-- Netcup says it temporarily disabled the VPS. Its notice requires a maintenance-window request and subsequent findings through CCP's Abuse Notices > Statement. A server may only be available in rescue mode.
+- Netcup temporarily disabled the VPS. The owner subsequently reported reactivation, independently verified by SSH and HTTPS on September 22. Findings still need to be submitted through CCP's Abuse Notices > Statement.
 - The signed-in CCP product list separately shows `91.204.44.28` as an additional Nürnberg IPv4 on this Netcup account and the named VPS as another Nürnberg product. This confirms account ownership of the reported egress IP, but not the sending process or how that IP was assigned at message time.
-- At 2026-09-22 14:23 Europe/Berlin, we requested urgent web-only restoration with outbound SMTP ports 25/465/587 blocked, or the earliest rescue/maintenance window from 17:00 to 21:00 Europe/Berlin. This request is pending Netcup's response. The application remained unreachable in the last check; do not call service restored until an independent HTTPS check succeeds.
+- At 2026-09-22 14:23 Europe/Berlin, we requested urgent web-only restoration with outbound SMTP ports 25/465/587 blocked, or a rescue window. Reactivation restored the web service, but the port-25 probe showed unrestricted egress until the host firewall guard was installed.
 
 SPF and DKIM pass indicate that authorized sending infrastructure/signing was used; they do not identify the actor. The headers alone do not distinguish Postal SMTP, Postal API, the Venmail app, compromised credentials, or host-level compromise. The outbound IP is not the submitter's IP.
 
