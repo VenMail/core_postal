@@ -23,7 +23,8 @@ class MailboxAbuseGuard
     def lock_after_hard_fail!(message)
       return false unless protected_message?(message)
       failures = hard_fail_count(message)
-      return false if failures < hard_fail_limit
+      limit = MailboxSubmissionGuard.hard_fail_limit_for(server: message.server, domain: message.domain&.name || message.authenticated_mailbox.to_s.split('@', 2).last)
+      return false unless limit && failures >= limit
 
       mailbox = message.authenticated_mailbox.to_s.downcase
       return false unless message.database.mail_user.deactivate(mailbox)
@@ -44,7 +45,7 @@ class MailboxAbuseGuard
       return false if mailbox.blank?
 
       domain = message.domain&.name || mailbox.split('@', 2).last
-      MailboxSubmissionGuard.protected_domain?(domain)
+      MailboxSubmissionGuard.hard_fail_limit_for(server: message.server, domain: domain).present?
     end
 
     def hard_fail_count(message)
@@ -60,8 +61,5 @@ class MailboxAbuseGuard
       ).to_i
     end
 
-    def hard_fail_limit
-      Postal.config.general.shared_free_mailbox_hard_fail_limit_per_day.to_i
-    end
   end
 end

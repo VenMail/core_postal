@@ -97,6 +97,7 @@ class Server < ApplicationRecord
   validates :permalink, :presence => true, :uniqueness => {:scope => :organization_id}, :format => {:with => /\A[a-z0-9\-]*\z/}, :exclusion => {:in => RESERVED_PERMALINKS}
   validate :validate_ip_pool_belongs_to_organization
   validate :validate_venmail_organization_binding_is_immutable
+  validate :validate_mailbox_abuse_limits
 
   before_validation(:on => :create) do
     self.token = self.token.downcase if self.token
@@ -146,6 +147,13 @@ class Server < ApplicationRecord
 
   def message_db
     @message_db ||= Postal::MessageDB::Database.new(self.organization_id, self.id)
+  end
+
+  def validate_mailbox_abuse_limits
+    [:mailbox_domain_recipient_limit_per_minute, :mailbox_recipient_limit_per_message, :mailbox_submission_limit_per_hour, :mailbox_recipient_limit_per_day, :mailbox_hard_fail_limit_per_day].each do |attribute|
+      value = public_send(attribute)
+      errors.add(attribute, 'must be greater than zero when configured') if value.present? && value.to_i <= 0
+    end
   end
 
   def message(id)

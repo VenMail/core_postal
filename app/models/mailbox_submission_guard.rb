@@ -13,19 +13,20 @@ class MailboxSubmissionGuard < ApplicationRecord
       normalized_domain = domain.to_s.strip.downcase
       normalized_mailbox = mailbox.to_s.strip.downcase
       recipient_count = recipients.to_i
-      return unless protected_domain?(normalized_domain)
+      limits = effective_limits(server, normalized_domain)
+      return unless limits
       return if normalized_mailbox.blank? || recipient_count <= 0
 
-      raise LimitExceeded, :recipient_limit_per_message if recipient_count > mailbox_recipient_limit_per_message
+      raise LimitExceeded, :recipient_limit_per_message if exceeds?(recipient_count, limits[:mailbox_recipient_limit_per_message])
 
       transaction(requires_new: true) do
         domain_guard, mailbox_guard = locked_guards(server.id, normalized_domain, normalized_mailbox)
         reset_expired_windows!(domain_guard, now)
         reset_expired_windows!(mailbox_guard, now)
 
-        raise LimitExceeded, :domain_recipient_limit_per_minute if domain_guard.minute_recipients + recipient_count > domain_recipient_limit_per_minute
-        raise LimitExceeded, :mailbox_submission_limit_per_hour if mailbox_guard.hour_submissions + 1 > mailbox_submission_limit_per_hour
-        raise LimitExceeded, :mailbox_recipient_limit_per_day if mailbox_guard.day_recipients + recipient_count > mailbox_recipient_limit_per_day
+        raise LimitExceeded, :domain_recipient_limit_per_minute if exceeds?(domain_guard.minute_recipients + recipient_count, limits[:domain_recipient_limit_per_minute])
+        raise LimitExceeded, :mailbox_submission_limit_per_hour if exceeds?(mailbox_guard.hour_submissions + 1, limits[:mailbox_submission_limit_per_hour])
+        raise LimitExceeded, :mailbox_recipient_limit_per_day if exceeds?(mailbox_guard.day_recipients + recipient_count, limits[:mailbox_recipient_limit_per_day])
 
         domain_guard.update!(minute_recipients: domain_guard.minute_recipients + recipient_count)
         mailbox_guard.update!(
@@ -38,6 +39,14 @@ class MailboxSubmissionGuard < ApplicationRecord
 
     def protected_domain?(domain)
       shared_free_domains.include?(domain.to_s.downcase)
+    end
+
+    def hard_fail_limit_for(server:, domain:)
+      configured = positive_limit(server, :mailbox_hard_fail_limit_per_day)
+      return configured if configured
+      return nil unless protected_domain?(domain)
+
+      Postal.config.general.shared_free_mailbox_hard_fail_limit_per_day.to_i
     end
 
     private
@@ -74,6 +83,33 @@ class MailboxSubmissionGuard < ApplicationRecord
 
     def shared_free_domains
       Array(Postal.config.general.shared_free_domains).map { |domain| domain.to_s.downcase }
+    end
+
+    def effective_limits(server, domain)
+      configured = {
+        :domain_recipient_limit_per_minute => positive_limit(server, :mailbox_domain_recipient_limit_per_minute),
+        :mailbox_recipient_limit_per_message => positive_limit(server, :mailbox_recipient_limit_per_message),
+        :mailbox_submission_limit_per_hour => positive_limit(server, :mailbox_submission_limit_per_hour),
+        :mailbox_recipient_limit_per_day => positive_limit(server, :mailbox_recipient_limit_per_day)
+      }
+      return configured if configured.values.any?
+      return nil unless protected_domain?(domain)
+
+      {
+        :domain_recipient_limit_per_minute => domain_recipient_limit_per_minute,
+        :mailbox_recipient_limit_per_message => mailbox_recipient_limit_per_message,
+        :mailbox_submission_limit_per_hour => mailbox_submission_limit_per_hour,
+        :mailbox_recipient_limit_per_day => mailbox_recipient_limit_per_day
+      }
+    end
+
+    def positive_limit(server, attribute)
+      value = server.public_send(attribute).to_i
+      value.positive? ? value : nil
+    end
+
+    def exceeds?(value, limit)
+      limit.present? && value > limit
     end
 
     def domain_recipient_limit_per_minute

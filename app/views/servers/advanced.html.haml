@@ -41,6 +41,29 @@
             %p.fieldSet__text
               If enabled, outgoing messages are blocked unless their domain has at least one verified incoming route on this server.
         .fieldSet__field
+          = f.label :mailbox_domain_recipient_limit_per_minute, "Mailbox domain recipients per minute", :class => 'fieldSet__label'
+          .fieldSet__input
+            = f.number_field :mailbox_domain_recipient_limit_per_minute, :class => 'input input--text', :min => 1, :placeholder => "Use shared-domain default"
+            %p.fieldSet__text A positive value is enforced before direct mailbox SMTP messages enter the queue.
+        .fieldSet__field
+          = f.label :mailbox_recipient_limit_per_message, "Mailbox recipients per message", :class => 'fieldSet__label'
+          .fieldSet__input
+            = f.number_field :mailbox_recipient_limit_per_message, :class => 'input input--text', :min => 1, :placeholder => "Use shared-domain default"
+            %p.fieldSet__text A positive value rejects oversized direct mailbox SMTP submissions.
+        .fieldSet__field
+          = f.label :mailbox_submission_limit_per_hour, "Mailbox submissions per hour", :class => 'fieldSet__label'
+          .fieldSet__input
+            = f.number_field :mailbox_submission_limit_per_hour, :class => 'input input--text', :min => 1, :placeholder => "Use shared-domain default"
+        .fieldSet__field
+          = f.label :mailbox_recipient_limit_per_day, "Mailbox recipients per day", :class => 'fieldSet__label'
+          .fieldSet__input
+            = f.number_field :mailbox_recipient_limit_per_day, :class => 'input input--text', :min => 1, :placeholder => "Use shared-domain default"
+        .fieldSet__field
+          = f.label :mailbox_hard_fail_limit_per_day, "Mailbox hard failures per day", :class => 'fieldSet__label'
+          .fieldSet__input
+            = f.number_field :mailbox_hard_fail_limit_per_day, :class => 'input input--text', :min => 1, :placeholder => "10 for shared free domains"
+            %p.fieldSet__text At the configured threshold, the mailbox is locked and queued mail is held.
+        .fieldSet__field
           = f.label :message_retention_days, :class => 'fieldSet__label'
           .fieldSet__input
             = f.text_field :message_retention_days, :class => 'input input--text'

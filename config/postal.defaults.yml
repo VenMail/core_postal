@@ -33,7 +33,7 @@ general:
   shared_free_mailbox_recipient_limit_per_message: 3
   shared_free_mailbox_submission_limit_per_hour: 5
   shared_free_mailbox_recipient_limit_per_day: 10
-  shared_free_mailbox_hard_fail_limit_per_day: 100
+  shared_free_mailbox_hard_fail_limit_per_day: 10
   reputation_block_threshold_percent: 8.0
   reputation_credential_bounce_threshold_percent: 8.0
   reputation_min_sample_size: 50

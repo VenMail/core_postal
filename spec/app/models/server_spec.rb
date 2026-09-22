@@ -30,6 +30,15 @@ describe Server do
     end
   end
 
+  context "mailbox abuse controls" do
+    it "rejects zero or negative configured limits" do
+      server = build(:server, :mailbox_hard_fail_limit_per_day => 0)
+
+      expect(server).not_to be_valid
+      expect(server.errors[:mailbox_hard_fail_limit_per_day]).to include('must be greater than zero when configured')
+    end
+  end
+
   context "default IP pools" do
     let(:org) { create(:organization) }
     let(:server) { create(:server, organization: org) }
