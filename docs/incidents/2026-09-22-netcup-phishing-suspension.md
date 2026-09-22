@@ -9,6 +9,7 @@ Status: investigation in progress. Do not report the server as remediated or req
 - The recipient's headers identify outbound IP `91.204.44.28` and `pxb.mail.venmail.io`; SPF and DKIM reportedly passed for `venia.cloud`.
 - The message impersonated DHL and linked to a payment lure at `syc.rnpp.ci`.
 - Netcup says it temporarily disabled the VPS. Its notice requires a maintenance-window request and subsequent findings through CCP's Abuse Notices > Statement. A server may only be available in rescue mode.
+- The signed-in CCP product list separately shows `91.204.44.28` as an additional Nürnberg IPv4 on this Netcup account and the named VPS as another Nürnberg product. This confirms account ownership of the reported egress IP, but not the sending process or how that IP was assigned at message time.
 
 SPF and DKIM pass indicate that authorized sending infrastructure/signing was used; they do not identify the actor. The headers alone do not distinguish Postal SMTP, Postal API, the Venmail app, compromised credentials, or host-level compromise. The outbound IP is not the submitter's IP.
 
