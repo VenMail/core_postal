@@ -30,6 +30,7 @@ describe MessagesController, type: :controller do
         allow_any_instance_of(ApplicationController).to receive(:logged_in?).and_return(true)
         allow_any_instance_of(ApplicationController).to receive(:current_user).and_return(user)
         message = create_plain_text_message(server, 'Test message', 'recipient@example.com')
+        message.update(:trusted_gateway => nil)
 
         post :ban_ip, params: {
           org_permalink: server.organization.permalink,
