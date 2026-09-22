@@ -59,6 +59,8 @@ RSpec.describe 'Send API client IP provenance' do
 
     expect(message.transport_peer_ip).to eq(gateway_ip)
     expect(message.external_actor_ip).to eq(actor_ip)
+    expect(message.trusted_gateway).to eq(1)
+    expect(message.verified_sender_ip).to eq(actor_ip)
     expect(message.sender_ip).to eq(actor_ip)
     expect(message.raw_headers).to include(gateway_ip)
     expect(message.raw_headers).not_to include(actor_ip)
@@ -78,6 +80,8 @@ RSpec.describe 'Send API client IP provenance' do
 
     expect(message.transport_peer_ip).to eq(gateway_ip)
     expect(message.external_actor_ip).to eq(actor_ip)
+    expect(message.trusted_gateway).to eq(1)
+    expect(message.verified_sender_ip).to eq(actor_ip)
     expect(message.sender_ip).to eq(actor_ip)
     expect(message.raw_headers).not_to include(actor_ip)
   end
@@ -101,6 +105,8 @@ RSpec.describe 'Send API client IP provenance' do
 
     expect(message.transport_peer_ip).to eq(direct_peer)
     expect(message.external_actor_ip).to be_nil
+    expect(message.trusted_gateway).to eq(0)
+    expect(message.verified_sender_ip).to eq(direct_peer)
     expect(message.sender_ip).to eq(direct_peer)
   end
 
@@ -123,6 +129,43 @@ RSpec.describe 'Send API client IP provenance' do
 
     expect(message.transport_peer_ip).to eq(direct_peer)
     expect(message.external_actor_ip).to be_nil
+    expect(message.trusted_gateway).to eq(0)
+    expect(message.verified_sender_ip).to eq(direct_peer)
     expect(message.sender_ip).to eq(direct_peer)
+  end
+
+  it 'does not attribute a trusted gateway to an absent structured actor' do
+    sender = authorize_sender
+    payload = post_json(
+      '/api/v1/send/message',
+      { :to => ['recipient@example.com'], :from => sender, :subject => 'Missing actor', :plain_body => 'body' },
+      :headers => { 'X-Venmail-Client-IP' => '' }
+    )
+
+    message_id = payload.fetch('data').fetch('messages').fetch('recipient@example.com').fetch('id')
+    message = server.message_db.message(message_id)
+
+    expect(message.transport_peer_ip).to eq(gateway_ip)
+    expect(message.external_actor_ip).to be_nil
+    expect(message.trusted_gateway).to eq(1)
+    expect(message.verified_sender_ip).to be_nil
+  end
+
+  it 'does not attribute a trusted gateway to an invalid actor on the raw API' do
+    sender = authorize_sender
+    raw_message = "From: #{sender}\r\nTo: recipient@example.com\r\nSubject: Invalid actor\r\n\r\nbody"
+    payload = post_json(
+      '/api/v1/send/raw',
+      { :mail_from => sender, :rcpt_to => ['recipient@example.com'], :data => Base64.strict_encode64(raw_message) },
+      :headers => { 'X-Venmail-Client-IP' => 'not-an-ip' }
+    )
+
+    message_id = payload.fetch('data').fetch('messages').fetch('recipient@example.com').fetch('id')
+    message = server.message_db.message(message_id)
+
+    expect(message.transport_peer_ip).to eq(gateway_ip)
+    expect(message.external_actor_ip).to be_nil
+    expect(message.trusted_gateway).to eq(1)
+    expect(message.verified_sender_ip).to be_nil
   end
 end

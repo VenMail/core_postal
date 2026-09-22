@@ -349,6 +349,11 @@ module Postal
         explicit = self.external_actor_ip.to_s.strip
         return explicit unless explicit.empty?
 
+        # A trusted gateway without a validated external actor is not itself
+        # the submitter. Older rows are ambiguous, so their NULL trust state
+        # must not be used for an IP ban either.
+        return nil unless self.trusted_gateway.to_s == '0'
+
         peer = self.transport_peer_ip.to_s.strip
         return peer unless peer.empty?
 

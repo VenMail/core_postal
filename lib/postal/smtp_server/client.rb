@@ -797,6 +797,7 @@ module Postal
               message.received_with_ssl = @tls
               message.scope = 'outgoing'
               message.transport_peer_ip = @ip_address
+              message.trusted_gateway = 0
               message.domain_id = @domain&.id
               message.save
               message.original_mail_from = @mail_from
@@ -808,6 +809,7 @@ module Postal
               message.received_with_ssl = @tls
               message.scope = 'outgoing'
               message.transport_peer_ip = @ip_address
+              message.trusted_gateway = 0
               message.domain_id = authenticated_domain&.id
               message.credential_id = @credential.id
               message.save

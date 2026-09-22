@@ -341,7 +341,7 @@
     end
 
     if GlobalSuppression.ban_ip(ip, reason: "Manual IP ban from message view by #{actor_email}")
-      redirect_to_with_json redirect_target, :notice => "IP #{ip} blocked. Queued messages from this source will be held; existing messages remain available for investigation. A delivery already in progress may complete."
+      redirect_to_with_json redirect_target, :notice => "IP #{ip} blocked. Queued messages from this source will be held; existing messages remain available for investigation. Messages already being processed may still send."
     else
       redirect_to_with_json headers_organization_server_message_path(organization, @server, @message.id), :alert => "Failed to ban IP #{ip}."
     end
