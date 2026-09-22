@@ -10,6 +10,7 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
     allow(Postal.config.general).to receive(:shared_free_mailbox_recipient_limit_per_message).and_return(3)
     allow(Postal.config.general).to receive(:shared_free_mailbox_submission_limit_per_hour).and_return(5)
     allow(Postal.config.general).to receive(:shared_free_mailbox_recipient_limit_per_day).and_return(10)
+    allow(Postal.config.general).to receive(:shared_free_mailbox_hard_fail_limit_per_day).and_return(10)
   end
 
   it 'rejects a shared-domain submission above the per-message recipient limit without consuming capacity' do
@@ -44,5 +45,11 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
     expect do
       described_class.reserve!(server: server, domain: 'customer.example', mailbox: 'sender@customer.example', recipients: 2, now: now)
     end.to raise_error(MailboxSubmissionGuard::LimitExceeded) { |error| expect(error.reason).to eq(:recipient_limit_per_message) }
+  end
+
+  it 'fails closed when an invalid configured hard-failure limit bypasses model validation' do
+    server.update_column(:mailbox_hard_fail_limit_per_day, 0)
+
+    expect(described_class.hard_fail_limit_for(server: server, domain: 'customer.example')).to eq(1)
   end
 end
