@@ -103,6 +103,7 @@ RSpec.describe Postal::SMTPServer::Client do
   it 'persists the authenticated mailbox on direct mailbox SMTP messages' do
     guard = Class.new
     guard.const_set(:LimitExceeded, Class.new(StandardError))
+    guard.define_singleton_method(:reserve!) { |_arguments| }
     stub_const('MailboxSubmissionGuard', guard)
     allow(MailboxSubmissionGuard).to receive(:reserve!)
     allow(mail_users).to receive(:find).with(address).and_return('active' => true)
