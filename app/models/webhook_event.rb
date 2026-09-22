@@ -30,7 +30,8 @@ class WebhookEvent < ApplicationRecord
     'DomainSendLimitExceeded',
     'ServerSuspended',
     'CredentialLocked',
-    'CredentialUnlocked'
+    'CredentialUnlocked',
+    'MailboxLocked'
   ]
 
   belongs_to :webhook

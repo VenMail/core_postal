@@ -25,6 +25,15 @@ general:
   address_spam_failure_threshold: 10.0
   spam_check_enabled: true
   default_domain_daily_send_limit: 1000
+  # Shared free domains are protected at SMTP submission time. These values are
+  # intentionally explicit: a storage quota is not an outbound-mail quota.
+  shared_free_domains:
+    - venia.cloud
+  shared_free_domain_recipient_limit_per_minute: 60
+  shared_free_mailbox_recipient_limit_per_message: 3
+  shared_free_mailbox_submission_limit_per_hour: 5
+  shared_free_mailbox_recipient_limit_per_day: 10
+  shared_free_mailbox_hard_fail_limit_per_day: 100
   reputation_block_threshold_percent: 8.0
   reputation_credential_bounce_threshold_percent: 8.0
   reputation_min_sample_size: 50

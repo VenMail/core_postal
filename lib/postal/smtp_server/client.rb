@@ -781,6 +781,22 @@ module Postal
           return '550 Outgoing blocked: domain has no verified incoming route on this server'
         end
 
+        if @authenticated_user_email && has_outgoing_recipients
+          begin
+            MailboxSubmissionGuard.reserve!(
+              :server => @domain.owner,
+              :domain => @domain.name,
+              :mailbox => @authenticated_user_email,
+              :recipients => @recipients.count { |recipient| recipient[0] == :credential }
+            )
+          rescue MailboxSubmissionGuard::LimitExceeded => error
+            log "Rejected outgoing mailbox submission for #{@authenticated_user_email}: #{error.reason}"
+            transaction_reset
+            @state = :welcomed
+            return '550 Outbound sending limit reached. Contact support.'
+          end
+        end
+
         @recipients.each do |recipient|
           type, rcpt_to, server, options = recipient
 
@@ -798,6 +814,7 @@ module Postal
               message.scope = 'outgoing'
               message.transport_peer_ip = @ip_address
               message.trusted_gateway = 0
+              message.authenticated_mailbox = @authenticated_user_email
               message.domain_id = @domain&.id
               message.save
               message.original_mail_from = @mail_from
