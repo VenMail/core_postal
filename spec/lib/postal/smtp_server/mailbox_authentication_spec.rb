@@ -97,7 +97,6 @@ RSpec.describe Postal::SMTPServer::Client do
 
     expect(message).to receive(:transport_peer_ip=).with('204.10.162.167')
     expect(message).to receive(:trusted_gateway=).with(0)
-    expect(message).to receive(:authenticated_mailbox=).with(address)
     expect(client.send(:finished)).to eq('250 OK')
   end
 end

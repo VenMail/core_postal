@@ -22,6 +22,7 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
 
   it 'enforces the shared domain recipient limit across mailboxes in the same minute' do
     allow(Postal.config.general).to receive(:shared_free_mailbox_recipient_limit_per_message).and_return(100)
+    allow(Postal.config.general).to receive(:shared_free_mailbox_recipient_limit_per_day).and_return(100)
     described_class.reserve!(server: server, domain: 'venia.cloud', mailbox: 'first@venia.cloud', recipients: 60, now: now)
 
     expect do
