@@ -67,6 +67,10 @@ class MailboxSubmissionGuard < ApplicationRecord
     def reputation_policy_for(server:, domain:)
       absolute_failure_limit = hard_fail_limit_for(:server => server, :domain => domain)
       return nil unless absolute_failure_limit
+      absolute_failure_limit = [
+        absolute_failure_limit,
+        config_integer(:reputation_absolute_failure_limit, 5)
+      ].min
 
       warning_threshold = config_float(:reputation_warning_threshold_percent, 2.0)
       hold_threshold = config_float(:reputation_hold_threshold_percent, 4.0)

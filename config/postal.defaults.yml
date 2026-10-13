@@ -46,6 +46,7 @@ general:
   shared_free_mailbox_hold_min_sample_size: 25
   reputation_warning_min_failures: 1
   reputation_hold_min_failures: 2
+  reputation_absolute_failure_limit: 5
   reputation_warning_lifetime_hours: 24
   reputation_throttled_recipient_limit_per_message: 1
   reputation_throttled_submission_limit_per_hour: 2

@@ -22,6 +22,7 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
     allow(Postal.config.general).to receive(:shared_free_mailbox_hold_min_sample_size).and_return(25)
     allow(Postal.config.general).to receive(:reputation_warning_min_failures).and_return(1)
     allow(Postal.config.general).to receive(:reputation_hold_min_failures).and_return(2)
+    allow(Postal.config.general).to receive(:reputation_absolute_failure_limit).and_return(5)
     allow(Postal.config.general).to receive(:reputation_warning_lifetime_hours).and_return(24)
     allow(Postal.config.general).to receive(:reputation_throttled_recipient_limit_per_message).and_return(1)
     allow(Postal.config.general).to receive(:reputation_throttled_submission_limit_per_hour).and_return(2)

@@ -38,6 +38,7 @@ RSpec.describe MailboxSubmissionGuard do
       :shared_free_mailbox_hold_min_sample_size => 25,
       :reputation_warning_min_failures => 1,
       :reputation_hold_min_failures => 2,
+      :reputation_absolute_failure_limit => 5,
       :reputation_warning_lifetime_hours => 24,
       :shared_free_domain_recipient_limit_per_minute => 60,
       :shared_free_mailbox_recipient_limit_per_message => 3,
@@ -63,7 +64,7 @@ RSpec.describe MailboxSubmissionGuard do
   end
 
   it 'uses the general evidence floors for a protected customer-domain mailbox' do
-    allow(server).to receive(:mailbox_hard_fail_limit_per_day).and_return(5)
+    allow(server).to receive(:mailbox_hard_fail_limit_per_day).and_return(10)
 
     expect(described_class.reputation_policy_for(server: server, domain: 'customer.example')).to eq(
       :warning => { :threshold_percent => 2.0, :minimum_sample_size => 25, :minimum_failures => 1 },
