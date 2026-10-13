@@ -206,7 +206,7 @@ module Postal
       
         sql_query = "UPDATE `#{database}`.`#{table}` SET"
         sql_query << " #{hash_to_sql(attributes)}"
-        sql_query << ' ' + build_where_string(options[:where]) if options[:where]
+        sql_query << ' ' + build_where_string(options[:where], ' AND ') if options[:where]
         
         with_mysql do |mysql|
           query_on_connection(mysql, sql_query)

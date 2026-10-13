@@ -87,6 +87,19 @@ jobs:
             live_tag="${image_repo}:latest"
             test -f "$compose_file"
 
+            for config_file in /opt/venmail/config/postal.yml /opt/venmail/bconfig/postal.yml; do
+              test -f "$config_file"
+              spam_check_enabled="$(awk '
+                /^general:/ { in_general=1; next }
+                in_general && /^[^[:space:]]/ { in_general=0 }
+                in_general && /^[[:space:]]+spam_check_enabled:/ { print $2; exit }
+              ' "$config_file")"
+              if [ "$spam_check_enabled" != true ]; then
+                echo 'Spam evaluation must be enabled before a full Core rollout.' >&2
+                exit 1
+              fi
+            done
+
             registry_config="$(mktemp -d)"
             export DOCKER_CONFIG="$registry_config"
             trap 'rm -rf "$registry_config"' EXIT
@@ -104,9 +117,9 @@ jobs:
               docker compose -f "$compose_file" run --rm --no-deps web sh -lc 'RAILS_ENV=production bin/rails db:migrate'
               # This deliberately names Core services only. It never touches Venmail's
               # application, Horizon, or any unrelated compose dependency.
-              docker compose -f "$compose_file" up -d --no-deps --no-build web core worker cron requeuer
+              docker compose -f "$compose_file" up -d --no-deps --no-build web core worker cron requeuer smtp
 
-              for container in install-web-1 install-core-1 install-worker-1 install-cron-1 install-requeuer-1; do
+              for container in install-web-1 install-core-1 install-worker-1 install-cron-1 install-requeuer-1 install-smtp-1; do
                 for attempt in $(seq 1 30); do
                   running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)"
                   actual_image_id="$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)"
@@ -119,5 +132,17 @@ jobs:
                   fi
                   sleep 2
                 done
+              done
+
+              for container in install-web-1 install-core-1 install-worker-1 install-cron-1 install-requeuer-1 install-smtp-1; do
+                actual_spam_setting="$(docker exec "$container" awk '
+                  /^general:/ { in_general=1; next }
+                  in_general && /^[^[:space:]]/ { in_general=0 }
+                  in_general && /^[[:space:]]+spam_check_enabled:/ { print $2; exit }
+                ' /config/postal.yml)"
+                if [ "$actual_spam_setting" != true ]; then
+                  echo "$container started without spam evaluation enabled." >&2
+                  exit 1
+                fi
               done
             ) 9>"$lock_dir/venmail-core-full-deploy.lock"

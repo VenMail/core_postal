@@ -726,9 +726,6 @@ class UnqueueMessageJob < Postal::Job
 
               # Log the result
               queued_message.message.create_delivery(result.type, :details => result.details, :output => result.output, :sent_with_ssl => result.secure, :log_id => result.log_id, :time => result.time)
-              if result.type == 'HardFail' && MailboxAbuseGuard.lock_after_hard_fail!(queued_message.message)
-                log "#{log_prefix} Authenticated mailbox #{queued_message.message.authenticated_mailbox} locked after repeated outbound hard failures."
-              end
               if result.retry
                 log "#{log_prefix} Message requeued for trying later."
                 queued_message.retry_later(result.retry.is_a?(Integer) ? result.retry : nil)

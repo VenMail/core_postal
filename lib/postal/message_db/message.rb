@@ -130,6 +130,9 @@ module Postal
         delivery = Delivery.create(self, options.merge(:status => status))
         hold_expiry = status == 'Held' ? Postal.config.general.maximum_hold_expiry_days.days.from_now.to_f : nil
         self.update(:status => status, :last_delivery_attempt => delivery.timestamp.to_f, :held => status == 'Held' ? 1 : 0, :hold_expiry => hold_expiry)
+        if %w[HardFail Bounced].include?(status) && scope == 'outgoing' && bounce.to_i.zero? && authenticated_mailbox.present?
+          MailboxAbuseGuard.lock_after_delivery_failure!(self)
+        end
         delivery
       end
 

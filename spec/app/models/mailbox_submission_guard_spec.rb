@@ -11,6 +11,9 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
     allow(Postal.config.general).to receive(:shared_free_mailbox_submission_limit_per_hour).and_return(5)
     allow(Postal.config.general).to receive(:shared_free_mailbox_recipient_limit_per_day).and_return(10)
     allow(Postal.config.general).to receive(:shared_free_mailbox_hard_fail_limit_per_day).and_return(10)
+    allow(Postal.config.general).to receive(:shared_free_mailbox_bounce_min_sample_size).and_return(10)
+    allow(Postal.config.general).to receive(:reputation_credential_bounce_threshold_percent).and_return(8.0)
+    allow(Postal.config.general).to receive(:reputation_min_sample_size).and_return(50)
   end
 
   it 'rejects a shared-domain submission above the per-message recipient limit without consuming capacity' do
@@ -51,5 +54,21 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
     server.update_column(:mailbox_hard_fail_limit_per_day, 0)
 
     expect(described_class.hard_fail_limit_for(server: server, domain: 'customer.example')).to eq(1)
+  end
+
+  it 'uses the eight-percent policy with a ten-message sample for the shared free domain' do
+    expect(described_class.bounce_policy_for(server: server, domain: 'venia.cloud')).to eq(
+      :threshold_percent => 8.0,
+      :minimum_sample_size => 10
+    )
+  end
+
+  it 'uses the general reputation sample for a customer-domain mailbox with explicit abuse controls' do
+    server.update!(mailbox_hard_fail_limit_per_day: 10)
+
+    expect(described_class.bounce_policy_for(server: server, domain: 'customer.example')).to eq(
+      :threshold_percent => 8.0,
+      :minimum_sample_size => 50
+    )
   end
 end

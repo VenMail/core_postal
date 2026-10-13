@@ -51,6 +51,8 @@ class ReputationMonitorJob < Postal::Job
   def perform
     Rails.logger.info "ReputationMonitorJob: Starting optimized analysis"
 
+    MailboxSubmissionGuard.retry_pending_mailbox_locks!
+
     # Check for active attacks first (high priority)
     detect_and_block_active_attacks
     
