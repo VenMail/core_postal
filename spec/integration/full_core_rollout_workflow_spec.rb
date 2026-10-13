@@ -19,6 +19,7 @@ RSpec.describe 'full Core rollout workflow' do
   it 'refuses a rollout when production spam evaluation is disabled' do
     expect(workflow).to include('spam_check_enabled')
     expect(workflow).to include('/opt/venmail/bconfig/postal.yml')
+    expect(workflow).to include('/opt/venmail/cconfig/postal.yml')
     expect(workflow).to include('Spam evaluation must be enabled before a full Core rollout.')
   end
 
