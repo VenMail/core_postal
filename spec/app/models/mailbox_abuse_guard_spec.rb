@@ -20,11 +20,16 @@ RSpec.describe MailboxAbuseGuard do
   before do
     submission_guard = Class.new do
       def self.hard_fail_limit_for(server:, domain:)
-        10
+        5
       end
 
-      def self.bounce_policy_for(server:, domain:)
-        { :minimum_sample_size => 10, :threshold_percent => 8.0 }
+      def self.reputation_policy_for(server:, domain:)
+        {
+          :warning => { :minimum_sample_size => 25, :minimum_failures => 1, :threshold_percent => 2.0 },
+          :hold => { :minimum_sample_size => 50, :minimum_failures => 2, :threshold_percent => 4.0 },
+          :absolute_failure_limit => 5,
+          :warning_lifetime => 24.hours
+        }
       end
 
       def self.begin_mailbox_lock!(server:, mailbox:, reason:, mailbox_active:)
@@ -32,43 +37,69 @@ RSpec.describe MailboxAbuseGuard do
 
       def self.enqueue_mailbox_lock_notification!(event)
       end
+
+      def self.begin_mailbox_warning!(server:, mailbox:, reason:, now:, expires_at:)
+      end
+
+      def self.enqueue_mailbox_warning_notification!(event)
+      end
     end
     stub_const('MailboxSubmissionGuard', submission_guard)
     allow(MailboxSubmissionGuard).to receive(:begin_mailbox_lock!).and_return(double('lock event'))
     allow(MailboxSubmissionGuard).to receive(:enqueue_mailbox_lock_notification!).and_return(true)
+    allow(MailboxSubmissionGuard).to receive(:begin_mailbox_warning!).and_return(double('warning event'))
+    allow(MailboxSubmissionGuard).to receive(:enqueue_mailbox_warning_notification!).and_return(true)
   end
 
-  it 'locks a shared mailbox when its correlated 24-hour failure rate exceeds eight percent' do
+  it 'warns without deactivating when the warning boundary has enough evidence' do
     allow(database).to receive(:escape).with('sender@venia.cloud').and_return("'sender@venia.cloud'")
-    allow(database).to receive(:query).and_return([{ 'total' => 10, 'failures' => 1 }])
+    allow(database).to receive(:query).and_return([{ 'total' => 25, 'failures' => 1 }])
+    expect(mail_user).not_to receive(:deactivate)
+    expect(MailboxSubmissionGuard).not_to receive(:begin_mailbox_lock!)
+    expect(MailboxSubmissionGuard).to receive(:begin_mailbox_warning!).with(
+      server: server,
+      mailbox: 'sender@venia.cloud',
+      reason: include('4.0% failure rate'),
+      now: kind_of(Time),
+      expires_at: kind_of(Time)
+    ).once.and_return(double('warning event'))
+    expect(MailboxSubmissionGuard).to receive(:enqueue_mailbox_warning_notification!).once
+
+    expect(described_class.lock_after_hard_fail!(message)).to be false
+  end
+
+  it 'does nothing until the warning sample is large enough' do
+    allow(database).to receive(:escape).with('sender@venia.cloud').and_return("'sender@venia.cloud'")
+    allow(database).to receive(:query).and_return([{ 'total' => 24, 'failures' => 1 }])
+    expect(mail_user).not_to receive(:deactivate)
+    expect(MailboxSubmissionGuard).not_to receive(:begin_mailbox_lock!)
+    expect(MailboxSubmissionGuard).not_to receive(:begin_mailbox_warning!)
+
+    expect(described_class.lock_after_hard_fail!(message)).to be false
+  end
+
+  it 'locks at four percent when the hold boundary has enough evidence' do
+    allow(database).to receive(:escape).with('sender@venia.cloud').and_return("'sender@venia.cloud'")
+    allow(database).to receive(:query).and_return([{ 'total' => 50, 'failures' => 2 }])
     allow(mail_user).to receive(:deactivate).with('sender@venia.cloud').and_return(true)
     expect(MailboxSubmissionGuard).to receive(:begin_mailbox_lock!).with(
       server: server,
       mailbox: 'sender@venia.cloud',
-      reason: include('10.0% bounce rate'),
+      reason: include('4.0% failure rate'),
       mailbox_active: true
     ).once.and_return(double('lock event'))
 
     expect(described_class.lock_after_hard_fail!(message)).to be true
   end
 
-  it 'does not lock from a percentage until the shared mailbox sample is large enough' do
+  it 'locks at the absolute five-failure safety boundary regardless of sample size' do
     allow(database).to receive(:escape).with('sender@venia.cloud').and_return("'sender@venia.cloud'")
-    allow(database).to receive(:query).and_return([{ 'total' => 9, 'failures' => 9 }])
-    expect(mail_user).not_to receive(:deactivate)
-    expect(MailboxSubmissionGuard).not_to receive(:begin_mailbox_lock!)
-
-    expect(described_class.lock_after_hard_fail!(message)).to be false
-  end
-
-  it 'retains the absolute hard-failure lock as a second safety boundary' do
-    allow(database).to receive(:escape).with('sender@venia.cloud').and_return("'sender@venia.cloud'")
-    allow(database).to receive(:query).and_return([{ 'total' => 10, 'failures' => 10 }])
+    allow(database).to receive(:query).and_return([{ 'total' => 5, 'failures' => 5 }])
     allow(mail_user).to receive(:deactivate).with('sender@venia.cloud').and_return(true)
     expect(MailboxSubmissionGuard).to receive(:begin_mailbox_lock!).with(
       server: server,
       mailbox: 'sender@venia.cloud',
-      reason: include('10 outbound delivery failures'),
+      reason: include('5 outbound delivery failures'),
       mailbox_active: true
     ).once.and_return(double('lock event'))
 

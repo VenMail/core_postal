@@ -24,22 +24,36 @@ class MailboxAbuseGuard
       return false unless protected_message?(message)
       outcomes = delivery_outcomes(message)
       failures = outcomes[:failures]
-      limit = MailboxSubmissionGuard.hard_fail_limit_for(server: message.server, domain: message.domain&.name || message.authenticated_mailbox.to_s.split('@', 2).last)
-      hard_failure_limit_reached = limit && failures >= limit
+      domain = message.domain&.name || message.authenticated_mailbox.to_s.split('@', 2).last
+      policy = MailboxSubmissionGuard.reputation_policy_for(server: message.server, domain: domain)
+      return false unless policy
 
-      reason = if hard_failure_limit_reached
+      failure_rate = outcomes[:total].positive? ? (failures.to_f / outcomes[:total]) * 100.0 : 0.0
+      absolute_limit_reached = failures >= policy[:absolute_failure_limit]
+      hold_boundary_reached = policy_boundary_reached?(policy[:hold], outcomes, failure_rate)
+      warning_boundary_reached = policy_boundary_reached?(policy[:warning], outcomes, failure_rate)
+      return false unless absolute_limit_reached || hold_boundary_reached || warning_boundary_reached
+
+      reason = if absolute_limit_reached
         "#{failures} outbound delivery failures in 24 hours"
       else
-        policy = MailboxSubmissionGuard.bounce_policy_for(server: message.server, domain: message.domain&.name || message.authenticated_mailbox.to_s.split('@', 2).last)
-        return false unless policy
-
-        bounce_rate = outcomes[:total].positive? ? (outcomes[:failures].to_f / outcomes[:total]) * 100.0 : 0.0
-        return false unless outcomes[:total] >= policy[:minimum_sample_size] && bounce_rate > policy[:threshold_percent]
-
-        "#{outcomes[:failures]} of #{outcomes[:total]} terminal outcomes failed in 24 hours (#{bounce_rate.round(2)}% bounce rate)"
+        "#{failures} of #{outcomes[:total]} terminal outcomes failed in 24 hours (#{failure_rate.round(2)}% failure rate)"
       end
 
       mailbox = message.authenticated_mailbox.to_s.downcase
+      if warning_boundary_reached && !absolute_limit_reached && !hold_boundary_reached
+        now = Time.now
+        warning_event = MailboxSubmissionGuard.begin_mailbox_warning!(
+          server: message.server,
+          mailbox: mailbox,
+          reason: reason,
+          now: now,
+          expires_at: now + policy[:warning_lifetime]
+        )
+        MailboxSubmissionGuard.enqueue_mailbox_warning_notification!(warning_event)
+        return false
+      end
+
       lock_event = MailboxSubmissionGuard.begin_mailbox_lock!(
         server: message.server,
         mailbox: mailbox,
@@ -91,6 +105,12 @@ class MailboxAbuseGuard
         :total => row.to_h['total'].to_i,
         :failures => row.to_h['failures'].to_i
       }
+    end
+
+    def policy_boundary_reached?(boundary, outcomes, failure_rate)
+      outcomes[:total] >= boundary[:minimum_sample_size] &&
+        outcomes[:failures] >= boundary[:minimum_failures] &&
+        failure_rate >= boundary[:threshold_percent]
     end
 
   end
