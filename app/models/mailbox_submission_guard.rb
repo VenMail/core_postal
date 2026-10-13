@@ -1,4 +1,6 @@
 class MailboxSubmissionGuard < ApplicationRecord
+  belongs_to :server
+
   class LimitExceeded < StandardError
     attr_reader :reason
 
@@ -47,6 +49,76 @@ class MailboxSubmissionGuard < ApplicationRecord
       return nil unless protected_domain?(domain)
 
       Postal.config.general.shared_free_mailbox_hard_fail_limit_per_day.to_i
+    end
+
+    def bounce_policy_for(server:, domain:)
+      return nil unless hard_fail_limit_for(:server => server, :domain => domain)
+
+      threshold = Postal.config.general.reputation_credential_bounce_threshold_percent.to_f
+      threshold = 8.0 unless threshold.positive? && threshold < 100.0
+
+      minimum_sample_size = if protected_domain?(domain)
+        Postal.config.general.shared_free_mailbox_bounce_min_sample_size.to_i
+      else
+        Postal.config.general.reputation_min_sample_size.to_i
+      end
+      minimum_sample_size = 1 unless minimum_sample_size.positive?
+
+      {
+        :threshold_percent => threshold,
+        :minimum_sample_size => minimum_sample_size
+      }
+    end
+
+    # Commit the lock transition before touching the per-server message DB.
+    # A row without lock_notification_enqueued_at is a durable outbox item.
+    def begin_mailbox_lock!(server:, mailbox:, reason:, mailbox_active:, now: Time.now)
+      normalized_mailbox = mailbox.to_s.strip.downcase
+      guard_key = "mailbox:#{normalized_mailbox}"
+      ensure_guard_exists!(server.id, guard_key)
+
+      transaction(requires_new: true) do
+        guard = where(server_id: server.id, guard_key: guard_key).lock.first!
+        if guard.locked_at.nil? || (guard.lock_notification_enqueued_at.present? && mailbox_active)
+          guard.update!(
+            locked_at: now,
+            lock_reason: reason,
+            lock_notification_enqueued_at: nil
+          )
+        elsif guard.lock_notification_enqueued_at.nil? && guard.lock_reason != reason
+          guard.update!(lock_reason: reason)
+        end
+        guard
+      end
+    end
+
+    def enqueue_mailbox_lock_notification!(guard, now: Time.now)
+      guard.with_lock do
+        return false if guard.lock_notification_enqueued_at.present?
+
+        mailbox = guard.guard_key.sub(/\Amailbox:/, '')
+        WebhookRequest.trigger(
+          guard.server,
+          'MailboxLocked',
+          mailbox: mailbox,
+          reason: guard.lock_reason,
+          locked_at: guard.locked_at&.iso8601
+        )
+        guard.update!(lock_notification_enqueued_at: now)
+      end
+      true
+    end
+
+    def retry_pending_mailbox_locks!
+      where.not(locked_at: nil).where(lock_notification_enqueued_at: nil).find_each do |guard|
+        begin
+          mailbox = guard.guard_key.sub(/\Amailbox:/, '')
+          guard.server.message_db.mail_user.deactivate(mailbox)
+          enqueue_mailbox_lock_notification!(guard)
+        rescue => e
+          Rails.logger.error("Mailbox lock retry failed for guard #{guard.id}: #{e.class}: #{e.message}")
+        end
+      end
     end
 
     private
