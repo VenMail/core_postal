@@ -33,11 +33,24 @@ general:
   shared_free_mailbox_recipient_limit_per_message: 3
   shared_free_mailbox_submission_limit_per_hour: 5
   shared_free_mailbox_recipient_limit_per_day: 10
-  shared_free_mailbox_hard_fail_limit_per_day: 10
+  shared_free_mailbox_hard_fail_limit_per_day: 5
   shared_free_mailbox_bounce_min_sample_size: 10
   reputation_block_threshold_percent: 8.0
   reputation_credential_bounce_threshold_percent: 8.0
   reputation_min_sample_size: 50
+  reputation_warning_threshold_percent: 2.0
+  reputation_hold_threshold_percent: 4.0
+  reputation_warning_min_sample_size: 25
+  reputation_hold_min_sample_size: 50
+  shared_free_mailbox_warning_min_sample_size: 10
+  shared_free_mailbox_hold_min_sample_size: 25
+  reputation_warning_min_failures: 1
+  reputation_hold_min_failures: 2
+  reputation_absolute_failure_limit: 5
+  reputation_warning_lifetime_hours: 24
+  reputation_throttled_recipient_limit_per_message: 1
+  reputation_throttled_submission_limit_per_hour: 2
+  reputation_throttled_recipient_limit_per_day: 5
   compromise:
     hour_window: 3600
     suspicious_threshold: 5

@@ -10,10 +10,23 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
     allow(Postal.config.general).to receive(:shared_free_mailbox_recipient_limit_per_message).and_return(3)
     allow(Postal.config.general).to receive(:shared_free_mailbox_submission_limit_per_hour).and_return(5)
     allow(Postal.config.general).to receive(:shared_free_mailbox_recipient_limit_per_day).and_return(10)
-    allow(Postal.config.general).to receive(:shared_free_mailbox_hard_fail_limit_per_day).and_return(10)
+    allow(Postal.config.general).to receive(:shared_free_mailbox_hard_fail_limit_per_day).and_return(5)
     allow(Postal.config.general).to receive(:shared_free_mailbox_bounce_min_sample_size).and_return(10)
     allow(Postal.config.general).to receive(:reputation_credential_bounce_threshold_percent).and_return(8.0)
     allow(Postal.config.general).to receive(:reputation_min_sample_size).and_return(50)
+    allow(Postal.config.general).to receive(:reputation_warning_threshold_percent).and_return(2.0)
+    allow(Postal.config.general).to receive(:reputation_hold_threshold_percent).and_return(4.0)
+    allow(Postal.config.general).to receive(:reputation_warning_min_sample_size).and_return(25)
+    allow(Postal.config.general).to receive(:reputation_hold_min_sample_size).and_return(50)
+    allow(Postal.config.general).to receive(:shared_free_mailbox_warning_min_sample_size).and_return(10)
+    allow(Postal.config.general).to receive(:shared_free_mailbox_hold_min_sample_size).and_return(25)
+    allow(Postal.config.general).to receive(:reputation_warning_min_failures).and_return(1)
+    allow(Postal.config.general).to receive(:reputation_hold_min_failures).and_return(2)
+    allow(Postal.config.general).to receive(:reputation_absolute_failure_limit).and_return(5)
+    allow(Postal.config.general).to receive(:reputation_warning_lifetime_hours).and_return(24)
+    allow(Postal.config.general).to receive(:reputation_throttled_recipient_limit_per_message).and_return(1)
+    allow(Postal.config.general).to receive(:reputation_throttled_submission_limit_per_hour).and_return(2)
+    allow(Postal.config.general).to receive(:reputation_throttled_recipient_limit_per_day).and_return(5)
   end
 
   it 'rejects a shared-domain submission above the per-message recipient limit without consuming capacity' do
@@ -56,10 +69,10 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
     expect(described_class.hard_fail_limit_for(server: server, domain: 'customer.example')).to eq(1)
   end
 
-  it 'uses the eight-percent policy with a ten-message sample for the shared free domain' do
+  it 'keeps the compatibility bounce policy at the four-percent shared-domain hold boundary' do
     expect(described_class.bounce_policy_for(server: server, domain: 'venia.cloud')).to eq(
-      :threshold_percent => 8.0,
-      :minimum_sample_size => 10
+      :threshold_percent => 4.0,
+      :minimum_sample_size => 25
     )
   end
 
@@ -67,7 +80,7 @@ RSpec.describe MailboxSubmissionGuard, type: :model do
     server.update!(mailbox_hard_fail_limit_per_day: 10)
 
     expect(described_class.bounce_policy_for(server: server, domain: 'customer.example')).to eq(
-      :threshold_percent => 8.0,
+      :threshold_percent => 4.0,
       :minimum_sample_size => 50
     )
   end

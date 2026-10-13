@@ -15,6 +15,20 @@ RSpec.describe 'mailbox lock notification outbox' do
   end
 
   it 'retries pending mailbox lock notifications from the recurring reputation job' do
+    expect(monitor_source).to include('MailboxSubmissionGuard.retry_pending_mailbox_warnings!')
     expect(monitor_source).to include('MailboxSubmissionGuard.retry_pending_mailbox_locks!')
+  end
+
+  it 'registers the warning webhook event' do
+    event_source = File.read(File.expand_path('../../app/models/webhook_event.rb', __dir__))
+
+    expect(event_source).to include("'MailboxReputationWarning'")
+  end
+
+  it 'subscribes existing credential-alert webhooks to mailbox warnings' do
+    migration_source = File.read(File.expand_path('../../db/migrate/20261013113000_add_reputation_warning_outbox_to_mailbox_submission_guards.rb', __dir__))
+
+    expect(migration_source).to include("event: 'CredentialLocked'")
+    expect(migration_source).to include("event: 'MailboxReputationWarning'")
   end
 end
