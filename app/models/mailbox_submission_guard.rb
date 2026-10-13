@@ -52,21 +52,50 @@ class MailboxSubmissionGuard < ApplicationRecord
     end
 
     def bounce_policy_for(server:, domain:)
-      return nil unless hard_fail_limit_for(:server => server, :domain => domain)
-
-      threshold = Postal.config.general.reputation_credential_bounce_threshold_percent.to_f
-      threshold = 8.0 unless threshold.positive? && threshold < 100.0
-
-      minimum_sample_size = if protected_domain?(domain)
-        Postal.config.general.shared_free_mailbox_bounce_min_sample_size.to_i
-      else
-        Postal.config.general.reputation_min_sample_size.to_i
-      end
-      minimum_sample_size = 1 unless minimum_sample_size.positive?
+      policy = reputation_policy_for(:server => server, :domain => domain)
+      return nil unless policy
 
       {
-        :threshold_percent => threshold,
-        :minimum_sample_size => minimum_sample_size
+        :threshold_percent => policy[:hold][:threshold_percent],
+        :minimum_sample_size => policy[:hold][:minimum_sample_size]
+      }
+    end
+
+    def reputation_policy_for(server:, domain:)
+      absolute_failure_limit = hard_fail_limit_for(:server => server, :domain => domain)
+      return nil unless absolute_failure_limit
+
+      warning_threshold = config_float(:reputation_warning_threshold_percent, 2.0)
+      hold_threshold = config_float(:reputation_hold_threshold_percent, 4.0)
+      unless warning_threshold.positive? && hold_threshold > warning_threshold && hold_threshold < 5.0
+        warning_threshold = 2.0
+        hold_threshold = 4.0
+      end
+
+      shared_domain = protected_domain?(domain)
+      warning_sample = config_integer(
+        shared_domain ? :shared_free_mailbox_warning_min_sample_size : :reputation_warning_min_sample_size,
+        shared_domain ? 10 : 25
+      )
+      hold_sample = config_integer(
+        shared_domain ? :shared_free_mailbox_hold_min_sample_size : :reputation_hold_min_sample_size,
+        shared_domain ? 25 : 50
+      )
+      hold_sample = [hold_sample, warning_sample].max
+
+      {
+        :warning => {
+          :threshold_percent => warning_threshold,
+          :minimum_sample_size => warning_sample,
+          :minimum_failures => config_integer(:reputation_warning_min_failures, 1)
+        },
+        :hold => {
+          :threshold_percent => hold_threshold,
+          :minimum_sample_size => hold_sample,
+          :minimum_failures => config_integer(:reputation_hold_min_failures, 2)
+        },
+        :absolute_failure_limit => absolute_failure_limit,
+        :warning_lifetime => config_integer(:reputation_warning_lifetime_hours, 24).hours
       }
     end
 
@@ -155,6 +184,20 @@ class MailboxSubmissionGuard < ApplicationRecord
 
     def shared_free_domains
       Array(Postal.config.general.shared_free_domains).map { |domain| domain.to_s.downcase }
+    end
+
+    def config_float(name, fallback)
+      value = Postal.config.general.public_send(name).to_f
+      value.positive? ? value : fallback
+    rescue NoMethodError
+      fallback
+    end
+
+    def config_integer(name, fallback)
+      value = Postal.config.general.public_send(name).to_i
+      value.positive? ? value : fallback
+    rescue NoMethodError
+      fallback
     end
 
     def effective_limits(server, domain)
