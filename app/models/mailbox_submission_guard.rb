@@ -25,10 +25,13 @@ class MailboxSubmissionGuard < ApplicationRecord
         domain_guard, mailbox_guard = locked_guards(server.id, normalized_domain, normalized_mailbox)
         reset_expired_windows!(domain_guard, now)
         reset_expired_windows!(mailbox_guard, now)
+        clear_warning_if_expired!(mailbox_guard, now)
+        reservation_limits = limits_for_warning_state(limits, mailbox_guard, now)
 
-        raise LimitExceeded, :domain_recipient_limit_per_minute if exceeds?(domain_guard.minute_recipients + recipient_count, limits[:domain_recipient_limit_per_minute])
-        raise LimitExceeded, :mailbox_submission_limit_per_hour if exceeds?(mailbox_guard.hour_submissions + 1, limits[:mailbox_submission_limit_per_hour])
-        raise LimitExceeded, :mailbox_recipient_limit_per_day if exceeds?(mailbox_guard.day_recipients + recipient_count, limits[:mailbox_recipient_limit_per_day])
+        raise LimitExceeded, :recipient_limit_per_message if exceeds?(recipient_count, reservation_limits[:mailbox_recipient_limit_per_message])
+        raise LimitExceeded, :domain_recipient_limit_per_minute if exceeds?(domain_guard.minute_recipients + recipient_count, reservation_limits[:domain_recipient_limit_per_minute])
+        raise LimitExceeded, :mailbox_submission_limit_per_hour if exceeds?(mailbox_guard.hour_submissions + 1, reservation_limits[:mailbox_submission_limit_per_hour])
+        raise LimitExceeded, :mailbox_recipient_limit_per_day if exceeds?(mailbox_guard.day_recipients + recipient_count, reservation_limits[:mailbox_recipient_limit_per_day])
 
         domain_guard.update!(minute_recipients: domain_guard.minute_recipients + recipient_count)
         mailbox_guard.update!(
@@ -232,6 +235,40 @@ class MailboxSubmissionGuard < ApplicationRecord
         attributes[:day_recipients] = 0
       end
       guard.update!(attributes) if attributes.present?
+    end
+
+    def clear_warning_if_expired!(guard, now)
+      return if guard.warning_expires_at.nil? || guard.warning_expires_at > now
+
+      guard.update!(
+        warning_at: nil,
+        warning_expires_at: nil,
+        warning_reason: nil,
+        warning_notification_enqueued_at: nil
+      )
+    end
+
+    def limits_for_warning_state(limits, guard, now)
+      return limits if guard.warning_expires_at.nil? || guard.warning_expires_at <= now
+
+      throttled = limits.dup
+      throttled[:mailbox_recipient_limit_per_message] = capped_limit(
+        throttled[:mailbox_recipient_limit_per_message],
+        config_integer(:reputation_throttled_recipient_limit_per_message, 1)
+      )
+      throttled[:mailbox_submission_limit_per_hour] = capped_limit(
+        throttled[:mailbox_submission_limit_per_hour],
+        config_integer(:reputation_throttled_submission_limit_per_hour, 2)
+      )
+      throttled[:mailbox_recipient_limit_per_day] = capped_limit(
+        throttled[:mailbox_recipient_limit_per_day],
+        config_integer(:reputation_throttled_recipient_limit_per_day, 5)
+      )
+      throttled
+    end
+
+    def capped_limit(current, cap)
+      current.present? ? [current, cap].min : cap
     end
 
     def shared_free_domains
