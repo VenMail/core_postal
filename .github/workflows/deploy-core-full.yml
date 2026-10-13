@@ -87,13 +87,9 @@ jobs:
             live_tag="${image_repo}:latest"
             test -f "$compose_file"
 
-            for config_file in /opt/venmail/config/postal.yml /opt/venmail/bconfig/postal.yml; do
+            for config_file in /opt/venmail/config/postal.yml /opt/venmail/bconfig/postal.yml /opt/venmail/cconfig/postal.yml; do
               test -f "$config_file"
-              spam_check_enabled="$(awk '
-                /^general:/ { in_general=1; next }
-                in_general && /^[^[:space:]]/ { in_general=0 }
-                in_general && /^[[:space:]]+spam_check_enabled:/ { print $2; exit }
-              ' "$config_file")"
+              spam_check_enabled="$(sed -n 's/^[[:space:]]*spam_check_enabled:[[:space:]]*//p' "$config_file" | head -n 1)"
               if [ "$spam_check_enabled" != true ]; then
                 echo 'Spam evaluation must be enabled before a full Core rollout.' >&2
                 exit 1
@@ -135,11 +131,7 @@ jobs:
               done
 
               for container in install-web-1 install-core-1 install-worker-1 install-cron-1 install-requeuer-1 install-smtp-1; do
-                actual_spam_setting="$(docker exec "$container" awk '
-                  /^general:/ { in_general=1; next }
-                  in_general && /^[^[:space:]]/ { in_general=0 }
-                  in_general && /^[[:space:]]+spam_check_enabled:/ { print $2; exit }
-                ' /config/postal.yml)"
+                actual_spam_setting="$(docker exec "$container" sh -lc "sed -n 's/^[[:space:]]*spam_check_enabled:[[:space:]]*//p' /config/postal.yml | head -n 1")"
                 if [ "$actual_spam_setting" != true ]; then
                   echo "$container started without spam evaluation enabled." >&2
                   exit 1
