@@ -31,6 +31,7 @@ class WebhookEvent < ApplicationRecord
     'ServerSuspended',
     'CredentialLocked',
     'CredentialUnlocked',
+    'MailboxReputationWarning',
     'MailboxLocked'
   ]
 

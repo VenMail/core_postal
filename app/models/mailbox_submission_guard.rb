@@ -138,6 +138,58 @@ class MailboxSubmissionGuard < ApplicationRecord
       true
     end
 
+    def begin_mailbox_warning!(server:, mailbox:, reason:, expires_at:, now: Time.now)
+      normalized_mailbox = mailbox.to_s.strip.downcase
+      guard_key = "mailbox:#{normalized_mailbox}"
+      ensure_guard_exists!(server.id, guard_key)
+
+      transaction(requires_new: true) do
+        guard = where(server_id: server.id, guard_key: guard_key).lock.first!
+        if guard.warning_expires_at.nil? || guard.warning_expires_at <= now
+          guard.update!(
+            warning_at: now,
+            warning_expires_at: expires_at,
+            warning_reason: reason,
+            warning_notification_enqueued_at: nil
+          )
+        elsif guard.warning_reason != reason
+          guard.update!(warning_reason: reason)
+        end
+        guard
+      end
+    end
+
+    def enqueue_mailbox_warning_notification!(guard, now: Time.now)
+      guard.with_lock do
+        return false if guard.warning_notification_enqueued_at.present?
+
+        mailbox = guard.guard_key.sub(/\Amailbox:/, '')
+        WebhookRequest.trigger(
+          guard.server,
+          'MailboxReputationWarning',
+          mailbox: mailbox,
+          reason: guard.warning_reason,
+          warning_at: guard.warning_at&.iso8601,
+          warning_expires_at: guard.warning_expires_at&.iso8601
+        )
+        guard.update!(warning_notification_enqueued_at: now)
+      end
+      true
+    end
+
+    def retry_pending_mailbox_warnings!(now: Time.now)
+      where.not(warning_at: nil)
+        .where(warning_notification_enqueued_at: nil)
+        .where('warning_expires_at > ?', now)
+        .find_each do |guard|
+          begin
+            enqueue_mailbox_warning_notification!(guard, now: now)
+          rescue => e
+            Rails.logger.error("Mailbox warning retry failed for guard #{guard.id}: #{e.class}: #{e.message}")
+          end
+        end
+    end
+
     def retry_pending_mailbox_locks!
       where.not(locked_at: nil).where(lock_notification_enqueued_at: nil).find_each do |guard|
         begin
