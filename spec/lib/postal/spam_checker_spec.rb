@@ -230,6 +230,54 @@ describe Postal::MessageInspectors::SpamChecker do
     rspamd.inspect_message(inspection)
   end
 
+  it 'extracts decoded visible HTML content without transport headers or attachments' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      Received: from Amazon transport.example
+      X-Provider: Amazon
+      DKIM-Signature: v=1; b=Amazon
+      MIME-Version: 1.0
+      Content-Type: multipart/mixed; boundary="outer"
+
+      --outer
+      Content-Type: multipart/alternative; boundary="inner"
+
+      --inner
+      Content-Type: text/plain; charset=UTF-8
+      Content-Transfer-Encoding: quoted-printable
+
+      Plain=20visible=20content
+      --inner
+      Content-Type: text/html; charset=UTF-8
+      Content-Transfer-Encoding: quoted-printable
+
+      <p>Visible=20HTML=20content</p>
+      --inner--
+      --outer
+      Content-Type: text/plain; name="receipt.txt"
+      Content-Disposition: attachment; filename="receipt.txt"
+      Content-Transfer-Encoding: quoted-printable
+
+      Amazon=20attachment=20content
+      --outer--
+    MAIL
+
+    content = described_class.new.send(:visible_content, raw_message)
+
+    expect(content).to include('Visible HTML content')
+    expect(content).not_to include('Amazon')
+    expect(content).not_to include('Plain visible content')
+  end
+
+  it 'falls back to the body section when MIME parsing fails' do
+    raw_message = "X-Provider: Amazon\r\nDKIM-Signature: Amazon\r\n\r\nVisible fallback body"
+    allow(Mail).to receive(:read_from_string).and_raise(Mail::Field::ParseError, 'invalid MIME')
+
+    content = described_class.new.send(:visible_content, raw_message)
+
+    expect(content).to eq('Visible fallback body')
+    expect(content).not_to include('Amazon')
+  end
+
   it 'passes high-confidence internal scores through without halving them' do
     message = double(
       :message,
@@ -251,6 +299,36 @@ describe Postal::MessageInspectors::SpamChecker do
     raw_message = <<~MAIL.gsub("\n", "\r\n")
       Received: from e237-243.smtp-out.us-west-2.amazonses.com (e237-243.smtp-out.us-west-2.amazonses.com [23.251.237.243]) by pxa.mail.venmail.io with SMTP
       DKIM-Signature: v=1; d=vercel.com; s=transactional; b=xAmazonSignatureValue
+      From: Vercel <system@vercel.com>
+      Reply-To: no-reply@vercel.com
+      To: copata@venmail.io
+      Subject: 012789 is your Vercel log in code
+      MIME-Version: 1.0
+      Content-Type: text/html; charset=UTF-8
+
+      <html><body><p>Log in to Vercel with this code:</p><strong>012789</strong></body></html>
+    MAIL
+    message = double(
+      :message,
+      :mail_from => '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com',
+      :raw_message => raw_message,
+      :headers => Mail.new(raw_message).header.fields.each_with_object({}) { |field, memo| (memo[field.name.downcase] ||= []) << field.decoded }
+    )
+    inspection = Postal::MessageInspection.new(message, :incoming)
+    record_rspamd_dmarc_allow(inspection)
+
+    described_class.new.inspect_message(inspection)
+
+    expect(inspection.rspamd_dmarc_policy_allow?).to be(true)
+    expect(inspection.spam_checks.map(&:code)).not_to include('V_SPAM')
+    expect(inspection.spam_checks.map(&:code)).not_to include('ERROR')
+  end
+
+  it 'does not classify authenticated Vercel mail as spam from a standalone Amazon transport header' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      Received: from outbound.vercel.com by pxa.mail.venmail.io with SMTP
+      X-Provider: Amazon
+      DKIM-Signature: v=1; d=vercel.com; s=transactional; b=signature
       From: Vercel <system@vercel.com>
       Reply-To: no-reply@vercel.com
       To: copata@venmail.io
