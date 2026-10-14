@@ -654,6 +654,57 @@ module Postal
       'dropbox', 'slack', 'zoom', 'adobe', 'salesforce',
       'indeed', 'upwork', 'fiverr', 'freelancer'
     ].freeze
+
+    BRAND_CANONICAL_DOMAINS = {
+      'meta' => ['meta.com'].freeze,
+      'facebook' => ['facebook.com', 'fb.com'].freeze,
+      'instagram' => ['instagram.com'].freeze,
+      'whatsapp' => ['whatsapp.com'].freeze,
+      'messenger' => ['messenger.com'].freeze,
+      'google' => ['google.com'].freeze,
+      'gmail' => ['gmail.com'].freeze,
+      'youtube' => ['youtube.com', 'youtu.be'].freeze,
+      'drive' => ['google.com'].freeze,
+      'workspace' => ['google.com'].freeze,
+      'apple' => ['apple.com'].freeze,
+      'icloud' => ['icloud.com'].freeze,
+      'app store' => ['apple.com'].freeze,
+      'itunes' => ['apple.com'].freeze,
+      'microsoft' => ['microsoft.com'].freeze,
+      'outlook' => ['outlook.com'].freeze,
+      'office' => ['office.com', 'microsoft.com'].freeze,
+      'teams' => ['teams.microsoft.com', 'microsoft.com'].freeze,
+      'azure' => ['azure.com'].freeze,
+      'amazon' => [
+        'amazon.com', 'amazon.co.uk', 'amazon.ca', 'amazon.com.au', 'amazon.co.jp',
+        'amazon.de', 'amazon.es', 'amazon.fr', 'amazon.in', 'amazon.it', 'amazon.nl',
+        'amazon.com.br', 'amazon.com.mx', 'amazon.se', 'amazon.pl'
+      ].freeze,
+      'aws' => ['amazonaws.com', 'aws.amazon.com'].freeze,
+      'prime' => ['amazon.com', 'primevideo.com'].freeze,
+      'netflix' => ['netflix.com'].freeze,
+      'spotify' => ['spotify.com'].freeze,
+      'linkedin' => ['linkedin.com'].freeze,
+      'twitter' => ['twitter.com', 'x.com'].freeze,
+      'x' => ['x.com'].freeze,
+      'paypal' => ['paypal.com'].freeze,
+      'venmo' => ['venmo.com'].freeze,
+      'cash app' => ['cash.app'].freeze,
+      'zelle' => ['zelle.com', 'zellepay.com'].freeze,
+      'chase' => ['chase.com'].freeze,
+      'bank of america' => ['bankofamerica.com'].freeze,
+      'wells fargo' => ['wellsfargo.com'].freeze,
+      'citibank' => ['citibank.com'].freeze,
+      'dropbox' => ['dropbox.com'].freeze,
+      'slack' => ['slack.com'].freeze,
+      'zoom' => ['zoom.us'].freeze,
+      'adobe' => ['adobe.com'].freeze,
+      'salesforce' => ['salesforce.com'].freeze,
+      'indeed' => ['indeed.com'].freeze,
+      'upwork' => ['upwork.com'].freeze,
+      'fiverr' => ['fiverr.com'].freeze,
+      'freelancer' => ['freelancer.com'].freeze
+    }.freeze
     
     # Job scam patterns - common in compromised account spam
     JOB_SCAM_PHRASES = [
@@ -792,13 +843,7 @@ module Postal
           next if brand.length < 2
           next unless text.match?(/(?<![a-z0-9])#{Regexp.escape(brand)}(?![a-z0-9])/i)
           
-          # Allow some common TLD variations for legitimate domains
-          legitimate_variants = [
-            "#{brand}.com", "#{brand}.org", "#{brand}.net",
-            "#{brand}.io", "#{brand}.co", "#{brand}.app",
-            "get#{brand}.com", "#{brand}support.com"
-          ]
-          domain_contains_brand = legitimate_variants.any? do |variant|
+          domain_contains_brand = BRAND_CANONICAL_DOMAINS.fetch(brand).any? do |variant|
             domain_or_subdomain?(sender_domain, variant)
           end
           

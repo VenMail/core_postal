@@ -14,7 +14,8 @@ module Postal
           Array(values).map { |value| "#{key}: #{value}" }
         end
         subject = Array(headers_hash['subject']).last.to_s
-        authenticated_from = inspection.spam_checks.any? { |check| check.code == 'DMARC_POLICY_ALLOW' } &&
+        authenticated_from = inspection.respond_to?(:rspamd_dmarc_policy_allow?) &&
+          inspection.rspamd_dmarc_policy_allow? &&
           inspection.spam_checks.none? { |check| ['ERROR', 'TIMEOUT'].include?(check.code) }
 
         spam_score = Postal::SpamChecker.classify_email(

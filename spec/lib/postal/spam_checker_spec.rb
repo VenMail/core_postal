@@ -74,7 +74,7 @@ describe Postal::SpamChecker do
   end
 
   it 'scores Amazon lookalike sender domains as mismatches' do
-    ['amazon-login.attacker.example', 'notamazon.com.evil'].each do |sender_domain|
+    ['amazon-login.attacker.example', 'notamazon.com.evil', 'getamazonsupport.com'].each do |sender_domain|
       score = described_class.check_brand_domain_mismatch(
         'Amazon account notice',
         'Review your Amazon account',
@@ -93,6 +93,22 @@ describe Postal::SpamChecker do
     )
 
     expect(score).to eq(0)
+  end
+
+  it 'allows Amazon ccTLD subdomains through its canonical ownership map' do
+    score = described_class.check_brand_domain_mismatch(
+      'Amazon account notice',
+      'Review your Amazon account',
+      'mail.amazon.co.uk'
+    )
+
+    expect(score).to eq(0)
+  end
+
+  it 'maps every impersonated brand to immutable canonical domains' do
+    expect(described_class::BRAND_CANONICAL_DOMAINS.keys).to match_array(described_class::IMPERSONATED_BRANDS)
+    expect(described_class::BRAND_CANONICAL_DOMAINS).to be_frozen
+    expect(described_class::BRAND_CANONICAL_DOMAINS.values).to all(be_frozen)
   end
 
   it 'does not penalize a generated envelope sender aligned with the From domain' do
@@ -174,6 +190,23 @@ describe Postal::MessageInspector do
 end
 
 describe Postal::MessageInspectors::SpamChecker do
+  def record_rspamd_dmarc_allow(inspection)
+    rspamd = Postal::MessageInspectors::Rspamd.new(double(:rspamd_config))
+    response = double(
+      :response,
+      :body => JSON.generate('symbols' => {
+        'DMARC_POLICY_ALLOW' => {
+          'name' => 'DMARC_POLICY_ALLOW',
+          'score' => 0,
+          'description' => 'DMARC policy allows sender'
+        }
+      })
+    )
+    allow(rspamd).to receive(:request).and_return(response)
+
+    rspamd.inspect_message(inspection)
+  end
+
   it 'passes high-confidence internal scores through without halving them' do
     message = double(
       :message,
@@ -210,13 +243,12 @@ describe Postal::MessageInspectors::SpamChecker do
       :raw_message => raw_message,
       :headers => Mail.new(raw_message).header.fields.each_with_object({}) { |field, memo| (memo[field.name.downcase] ||= []) << field.decoded }
     )
-    inspection = Struct.new(:message, :spam_checks).new(
-      message,
-      [Postal::SpamCheck.new('DMARC_POLICY_ALLOW', 0, 'DMARC policy allows sender')]
-    )
+    inspection = Postal::MessageInspection.new(message, :incoming)
+    record_rspamd_dmarc_allow(inspection)
 
     described_class.new.inspect_message(inspection)
 
+    expect(inspection.rspamd_dmarc_policy_allow?).to be(true)
     expect(inspection.spam_checks.map(&:code)).not_to include('V_SPAM')
     expect(inspection.spam_checks.map(&:code)).not_to include('ERROR')
   end
@@ -240,7 +272,8 @@ describe Postal::MessageInspectors::SpamChecker do
       :raw_message => raw_message,
       :headers => Mail.new(raw_message).header.fields.each_with_object({}) { |field, memo| (memo[field.name.downcase] ||= []) << field.decoded }
     )
-    inspection = Struct.new(:message, :spam_checks).new(message, [])
+    inspection = Postal::MessageInspection.new(message, :incoming)
+    inspection.spam_checks << Postal::SpamCheck.new('DMARC_POLICY_ALLOW', 0, 'Generic rule')
 
     described_class.new.inspect_message(inspection)
 
@@ -248,7 +281,7 @@ describe Postal::MessageInspectors::SpamChecker do
     expect(inspection.spam_checks.map(&:code)).not_to include('ERROR')
   end
 
-  it 'fails closed when a scanner error accompanies a DMARC allow result' do
+  it 'fails closed when a scanner error or timeout accompanies an Rspamd DMARC allow result' do
     message = double(
       :message,
       :mail_from => '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com',
@@ -258,13 +291,14 @@ describe Postal::MessageInspectors::SpamChecker do
         'subject' => ['Vercel sign-in code']
       }
     )
-    inspection = Struct.new(:message, :spam_checks).new(message, [
-      Postal::SpamCheck.new('DMARC_POLICY_ALLOW', 0, 'DMARC policy allows sender'),
-      Postal::SpamCheck.new('ERROR', 0, 'Rspamd unavailable')
-    ])
+    ['ERROR', 'TIMEOUT'].each do |failure_code|
+      inspection = Postal::MessageInspection.new(message, :incoming)
+      record_rspamd_dmarc_allow(inspection)
+      inspection.spam_checks << Postal::SpamCheck.new(failure_code, 0, 'Scanner unavailable')
 
-    described_class.new.inspect_message(inspection)
+      described_class.new.inspect_message(inspection)
 
-    expect(inspection.spam_checks.map(&:code)).to include('V_SPAM')
+      expect(inspection.spam_checks.map(&:code)).to include('V_SPAM')
+    end
   end
 end

@@ -6,12 +6,14 @@ module Postal
     attr_reader :spam_checks
     attr_accessor :threat
     attr_accessor :threat_message
+    attr_reader :rspamd_dmarc_policy_allow
 
     def initialize(message, scope)
       @message = message
       @scope = scope
       @spam_checks = []
       @threat = false
+      @rspamd_dmarc_policy_allow = false
     end
 
     def spam_score
@@ -22,6 +24,14 @@ module Postal
 
     def threat?
       @threat == true
+    end
+
+    def rspamd_dmarc_policy_allow?
+      @rspamd_dmarc_policy_allow == true
+    end
+
+    def record_rspamd_dmarc_policy_allow!
+      @rspamd_dmarc_policy_allow = true
     end
 
     def scan

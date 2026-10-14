@@ -13,6 +13,7 @@ module Postal
         return unless response['symbols'].is_a?(Hash)
 
         response['symbols'].values.each do |symbol|
+          inspection.record_rspamd_dmarc_policy_allow! if symbol['name'] == 'DMARC_POLICY_ALLOW'
           next if symbol['description'].blank?
 
           inspection.spam_checks << SpamCheck.new(symbol['name'], symbol['score'], symbol['description'])
