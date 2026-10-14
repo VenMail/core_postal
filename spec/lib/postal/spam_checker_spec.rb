@@ -36,6 +36,13 @@ describe Postal::SpamChecker do
     expect(described_class.domains_related?('vercel.com.evil.example', 'vercel.com')).to be(false)
   end
 
+  it 'normalizes domains and extracts email addresses deterministically' do
+    expect(described_class.normalize_domain('MAIL.VERCEL.COM...')).to eq('mail.vercel.com')
+    expect(described_class.domain_or_subdomain?('mail.vercel.com', 'VERCEL.COM.')).to be(true)
+    expect(described_class.domain_or_subdomain?('vercel.com.evil.example', 'vercel.com')).to be(false)
+    expect(described_class.extract_email_address('Vercel <system@vercel.com>')).to eq('system@vercel.com')
+  end
+
   it 'does not match single-character brands inside ordinary content' do
     score = described_class.check_brand_domain_mismatch(
       'Login code',
@@ -56,6 +63,16 @@ describe Postal::SpamChecker do
     expect(score).to be >= 6
   end
 
+  it 'does not score an impersonated brand inside an alphanumeric token' do
+    score = described_class.check_brand_domain_mismatch(
+      'Amazonian account notice',
+      'Review your Amazonian account',
+      'attacker.example'
+    )
+
+    expect(score).to eq(0)
+  end
+
   it 'does not penalize a generated envelope sender aligned with the From domain' do
     score = described_class.check_random_sender_address(
       '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com',
@@ -65,10 +82,42 @@ describe Postal::SpamChecker do
     expect(score).to eq(0)
   end
 
+  it 'retains the random sender score when its reference domain is unrelated' do
+    score = described_class.check_random_sender_address(
+      '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com',
+      'system@attacker.example'
+    )
+
+    expect(score).to be > 0
+  end
+
   it 'still penalizes an unrelated Reply-To domain' do
     headers = ['Reply-To: collect@attacker.example']
 
     expect(described_class.check_reply_to_mismatch(headers, 'system@vercel.com')).to eq(8)
+  end
+
+  it 'does not penalize a Reply-To address on a related subdomain' do
+    headers = ['Reply-To: no-reply@mail.vercel.com']
+
+    expect(described_class.check_reply_to_mismatch(headers, 'system@vercel.com')).to eq(0)
+  end
+
+  it 'uses the parsed related From address when scoring a generated envelope sender' do
+    envelope_sender = '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com'
+    headers = ['From: Vercel <system@vercel.com>']
+
+    expect(described_class.check_random_sender_address(envelope_sender)).to be > 0
+
+    score = described_class.classify_email(
+      envelope_sender,
+      'Your sign-in code is 012789.',
+      headers,
+      'Vercel sign-in code'
+    )
+
+    expect(score).to eq(1)
+    expect(score).to be < 5
   end
 end
 
