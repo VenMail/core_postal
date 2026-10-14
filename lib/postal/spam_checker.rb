@@ -654,6 +654,60 @@ module Postal
       'dropbox', 'slack', 'zoom', 'adobe', 'salesforce',
       'indeed', 'upwork', 'fiverr', 'freelancer'
     ].freeze
+
+    # Curated canonical ownership map for brand/domain alignment. New sites require
+    # explicit additions; this intentionally does not infer ownership from strings.
+    BRAND_CANONICAL_DOMAINS = {
+      'meta' => ['meta.com'].freeze,
+      'facebook' => ['facebook.com', 'fb.com'].freeze,
+      'instagram' => ['instagram.com'].freeze,
+      'whatsapp' => ['whatsapp.com'].freeze,
+      'messenger' => ['messenger.com'].freeze,
+      'google' => ['google.com'].freeze,
+      'gmail' => ['gmail.com'].freeze,
+      'youtube' => ['youtube.com', 'youtu.be'].freeze,
+      'drive' => ['google.com'].freeze,
+      'workspace' => ['google.com'].freeze,
+      'apple' => ['apple.com'].freeze,
+      'icloud' => ['icloud.com'].freeze,
+      'app store' => ['apple.com'].freeze,
+      'itunes' => ['apple.com'].freeze,
+      'microsoft' => ['microsoft.com'].freeze,
+      'outlook' => ['outlook.com'].freeze,
+      'office' => ['office.com', 'microsoft.com'].freeze,
+      'teams' => ['teams.microsoft.com', 'microsoft.com'].freeze,
+      'azure' => ['azure.com'].freeze,
+      'amazon' => [
+        'amazon.com', 'amazon.co.uk', 'amazon.ca', 'amazon.com.au', 'amazon.co.jp',
+        'amazon.de', 'amazon.es', 'amazon.fr', 'amazon.in', 'amazon.it', 'amazon.nl',
+        'amazon.com.br', 'amazon.com.mx', 'amazon.se', 'amazon.pl', 'amazon.com.be',
+        'amazon.sg', 'amazon.ae', 'amazon.sa', 'amazon.eg', 'amazon.com.tr'
+      ].freeze,
+      'aws' => ['amazonaws.com', 'aws.amazon.com'].freeze,
+      'prime' => ['amazon.com', 'primevideo.com'].freeze,
+      'netflix' => ['netflix.com'].freeze,
+      'spotify' => ['spotify.com'].freeze,
+      'linkedin' => ['linkedin.com'].freeze,
+      'twitter' => ['twitter.com', 'x.com'].freeze,
+      'x' => ['x.com'].freeze,
+      'paypal' => ['paypal.com'].freeze,
+      'venmo' => ['venmo.com'].freeze,
+      'cash app' => ['cash.app'].freeze,
+      'zelle' => ['zelle.com', 'zellepay.com'].freeze,
+      'chase' => ['chase.com'].freeze,
+      'bank of america' => ['bankofamerica.com'].freeze,
+      'wells fargo' => ['wellsfargo.com'].freeze,
+      'citibank' => ['citibank.com'].freeze,
+      'dropbox' => ['dropbox.com'].freeze,
+      'slack' => ['slack.com'].freeze,
+      'zoom' => ['zoom.us'].freeze,
+      'adobe' => ['adobe.com'].freeze,
+      'salesforce' => ['salesforce.com'].freeze,
+      'indeed' => ['indeed.com'].freeze,
+      'upwork' => ['upwork.com'].freeze,
+      'fiverr' => ['fiverr.com'].freeze,
+      'freelancer' => ['freelancer.com'].freeze
+    }.freeze
     
     # Job scam patterns - common in compromised account spam
     JOB_SCAM_PHRASES = [
@@ -757,32 +811,46 @@ module Postal
         
         matching_count
       end
+
+      def normalize_domain(domain)
+        domain.to_s.downcase.sub(/\.+\z/, '')
+      end
+
+      def domain_or_subdomain?(candidate, parent)
+        candidate = normalize_domain(candidate)
+        parent = normalize_domain(parent)
+        return false if candidate.empty? || parent.empty?
+
+        candidate == parent || candidate.end_with?(".#{parent}")
+      end
+
+      def domains_related?(left, right)
+        domain_or_subdomain?(left, right) || domain_or_subdomain?(right, left)
+      end
+
+      def extract_email_address(value)
+        value.to_s[EMAIL_REGEX]
+      end
       
       def check_brand_domain_mismatch(subject, body_lower, sender_domain)
         return 0 unless sender_domain && (subject || body_lower)
         
         score = 0
         text = (subject.to_s + ' ' + body_lower.to_s).downcase
-        sender_domain = sender_domain.downcase
+        sender_domain = normalize_domain(sender_domain)
         
         # Skip if sender is already trusted
         return 0 if TRUSTED_DOMAINS.any? { |domain| sender_domain.end_with?(domain) }
         
         IMPERSONATED_BRANDS.each do |brand|
-          next unless text.include?(brand)
+          next if brand.length < 2
+          next unless text.match?(/(?<![a-z0-9])#{Regexp.escape(brand)}(?![a-z0-9])/i)
           
-          # Check if sender domain contains the brand name
-          domain_contains_brand = sender_domain.include?(brand)
+          domain_contains_brand = BRAND_CANONICAL_DOMAINS.fetch(brand).any? do |variant|
+            domain_or_subdomain?(sender_domain, variant)
+          end
           
-          # Allow some common TLD variations for legitimate domains
-          legitimate_variants = [
-            "#{brand}.com", "#{brand}.org", "#{brand}.net",
-            "#{brand}.io", "#{brand}.co", "#{brand}.app",
-            "get#{brand}.com", "#{brand}support.com"
-          ]
-          is_legitimate_variant = legitimate_variants.any? { |variant| sender_domain.include?(variant) }
-          
-          unless domain_contains_brand || is_legitimate_variant
+          unless domain_contains_brand
             log "Brand/domain mismatch detected: '#{brand}' mentioned but sender is #{sender_domain}"
             score += 6
           end
@@ -791,8 +859,12 @@ module Postal
         score
       end
       
-      def check_random_sender_address(sender_email)
+      def check_random_sender_address(sender_email, reference_email = nil, authenticated_from = false)
         return 0 unless sender_email
+
+        sender_domain = extract_domain_from_email(sender_email)
+        reference_domain = extract_domain_from_email(reference_email)
+        return 0 if authenticated_from == true && domains_related?(sender_domain, reference_domain)
         
         local_part = sender_email.split('@').first&.downcase
         return 0 unless local_part
@@ -839,7 +911,7 @@ module Postal
         return 0 unless reply_to_header
         
         # Extract email from Reply-To header
-        reply_to_email = reply_to_header.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i)&.captures&.first
+        reply_to_email = extract_email_address(reply_to_header)
         return 0 unless reply_to_email
         
         sender_domain = extract_domain_from_email(sender_email)
@@ -848,7 +920,7 @@ module Postal
         return 0 unless sender_domain && reply_to_domain
         
         # If Reply-To domain is different from sender domain, this is highly suspicious
-        if sender_domain != reply_to_domain
+        unless domains_related?(sender_domain, reply_to_domain)
           # Check if both are trusted domains (legitimate forwarding)
           sender_trusted = TRUSTED_DOMAINS.any? { |d| sender_domain.end_with?(d) }
           reply_trusted = TRUSTED_DOMAINS.any? { |d| reply_to_domain.end_with?(d) }
@@ -1368,7 +1440,7 @@ module Postal
         score
       end
                    
-      def classify_email(sender_email, parsed, headers = [], subject = '')
+      def classify_email(sender_email, parsed, headers = [], subject = '', authenticated_from = false)
         # Input validation and size limits
         return 20 unless sender_email.is_a?(String)
         return 20 unless subject.is_a?(String) && subject.length <= MAX_SUBJECT_SIZE
@@ -1397,6 +1469,7 @@ module Postal
         
         # Extract From header for name/email mismatch detection
         from_header = headers.find { |h| h.match?(/^From:/i) }
+        from_email = extract_email_address(from_header)
         from_domain = extract_domain_from_email(sender_email)
         
         # Track header fingerprint for rate limiting
@@ -1414,7 +1487,7 @@ module Postal
         confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower, sender_email)
         phishing_tracking_score = check_phishing_tracking_links(links)
         brand_domain_mismatch_score = check_brand_domain_mismatch(subject, body_lower, from_domain)
-        random_sender_score = check_random_sender_address(sender_email)
+        random_sender_score = check_random_sender_address(sender_email, from_email, authenticated_from)
         greeting_urgency_score = email_greeting_urgency_score(
           body_str,
           subject,

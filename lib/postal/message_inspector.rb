@@ -22,15 +22,15 @@ module Postal
       def inspectors
         Array.new.tap do |inspectors|
 
-          # Only add SpamChecker if enabled in configuration
-          if Postal.config.general.spam_check_enabled != false
-            inspectors << MessageInspectors::SpamChecker.new
-          end
-
           if Postal.config.rspamd&.enabled
             inspectors << MessageInspectors::Rspamd.new(Postal.config.rspamd)
           elsif Postal.config.spamd&.enabled
             inspectors << MessageInspectors::SpamAssassin.new(Postal.config.spamd)
+          end
+
+          # Only add SpamChecker if enabled in configuration
+          if Postal.config.general.spam_check_enabled != false
+            inspectors << MessageInspectors::SpamChecker.new
           end
 
           if Postal.config.clamav&.enabled
