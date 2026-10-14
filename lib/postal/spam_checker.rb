@@ -757,6 +757,26 @@ module Postal
         
         matching_count
       end
+
+      def normalize_domain(domain)
+        domain.to_s.downcase.sub(/\.+\z/, '')
+      end
+
+      def domain_or_subdomain?(candidate, parent)
+        candidate = normalize_domain(candidate)
+        parent = normalize_domain(parent)
+        return false if candidate.empty? || parent.empty?
+
+        candidate == parent || candidate.end_with?(".#{parent}")
+      end
+
+      def domains_related?(left, right)
+        domain_or_subdomain?(left, right) || domain_or_subdomain?(right, left)
+      end
+
+      def extract_email_address(value)
+        value.to_s[EMAIL_REGEX]
+      end
       
       def check_brand_domain_mismatch(subject, body_lower, sender_domain)
         return 0 unless sender_domain && (subject || body_lower)
@@ -769,7 +789,8 @@ module Postal
         return 0 if TRUSTED_DOMAINS.any? { |domain| sender_domain.end_with?(domain) }
         
         IMPERSONATED_BRANDS.each do |brand|
-          next unless text.include?(brand)
+          next if brand.length < 2
+          next unless text.match?(/(?<![a-z0-9])#{Regexp.escape(brand)}(?![a-z0-9])/i)
           
           # Check if sender domain contains the brand name
           domain_contains_brand = sender_domain.include?(brand)
@@ -791,8 +812,12 @@ module Postal
         score
       end
       
-      def check_random_sender_address(sender_email)
+      def check_random_sender_address(sender_email, reference_email = nil)
         return 0 unless sender_email
+
+        sender_domain = extract_domain_from_email(sender_email)
+        reference_domain = extract_domain_from_email(reference_email)
+        return 0 if domains_related?(sender_domain, reference_domain)
         
         local_part = sender_email.split('@').first&.downcase
         return 0 unless local_part
@@ -839,7 +864,7 @@ module Postal
         return 0 unless reply_to_header
         
         # Extract email from Reply-To header
-        reply_to_email = reply_to_header.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i)&.captures&.first
+        reply_to_email = extract_email_address(reply_to_header)
         return 0 unless reply_to_email
         
         sender_domain = extract_domain_from_email(sender_email)
@@ -848,7 +873,7 @@ module Postal
         return 0 unless sender_domain && reply_to_domain
         
         # If Reply-To domain is different from sender domain, this is highly suspicious
-        if sender_domain != reply_to_domain
+        unless domains_related?(sender_domain, reply_to_domain)
           # Check if both are trusted domains (legitimate forwarding)
           sender_trusted = TRUSTED_DOMAINS.any? { |d| sender_domain.end_with?(d) }
           reply_trusted = TRUSTED_DOMAINS.any? { |d| reply_to_domain.end_with?(d) }
@@ -1397,6 +1422,7 @@ module Postal
         
         # Extract From header for name/email mismatch detection
         from_header = headers.find { |h| h.match?(/^From:/i) }
+        from_email = extract_email_address(from_header)
         from_domain = extract_domain_from_email(sender_email)
         
         # Track header fingerprint for rate limiting
@@ -1414,7 +1440,7 @@ module Postal
         confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower, sender_email)
         phishing_tracking_score = check_phishing_tracking_links(links)
         brand_domain_mismatch_score = check_brand_domain_mismatch(subject, body_lower, from_domain)
-        random_sender_score = check_random_sender_address(sender_email)
+        random_sender_score = check_random_sender_address(sender_email, from_email)
         greeting_urgency_score = email_greeting_urgency_score(
           body_str,
           subject,
