@@ -73,10 +73,33 @@ describe Postal::SpamChecker do
     expect(score).to eq(0)
   end
 
+  it 'scores Amazon lookalike sender domains as mismatches' do
+    ['amazon-login.attacker.example', 'notamazon.com.evil'].each do |sender_domain|
+      score = described_class.check_brand_domain_mismatch(
+        'Amazon account notice',
+        'Review your Amazon account',
+        sender_domain
+      )
+
+      expect(score).to be >= 6
+    end
+  end
+
+  it 'allows a legitimate brand subdomain' do
+    score = described_class.check_brand_domain_mismatch(
+      'Amazon account notice',
+      'Review your Amazon account',
+      'mail.amazon.com'
+    )
+
+    expect(score).to eq(0)
+  end
+
   it 'does not penalize a generated envelope sender aligned with the From domain' do
     score = described_class.check_random_sender_address(
       '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com',
-      'system@vercel.com'
+      'system@vercel.com',
+      true
     )
 
     expect(score).to eq(0)
@@ -103,11 +126,9 @@ describe Postal::SpamChecker do
     expect(described_class.check_reply_to_mismatch(headers, 'system@vercel.com')).to eq(0)
   end
 
-  it 'uses the parsed related From address when scoring a generated envelope sender' do
+  it 'keeps generated sender scoring when a related From address is unverified' do
     envelope_sender = '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com'
     headers = ['From: Vercel <system@vercel.com>']
-
-    expect(described_class.check_random_sender_address(envelope_sender)).to be > 0
 
     score = described_class.classify_email(
       envelope_sender,
@@ -116,8 +137,39 @@ describe Postal::SpamChecker do
       'Vercel sign-in code'
     )
 
+    expect(score).to be >= 5
+  end
+
+  it 'uses the parsed related From address only after DMARC authentication' do
+    envelope_sender = '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com'
+    headers = ['From: Vercel <system@vercel.com>']
+
+    expect(described_class.check_random_sender_address(envelope_sender, 'system@vercel.com', true)).to eq(0)
+
+    score = described_class.classify_email(
+      envelope_sender,
+      'Your sign-in code is 012789.',
+      headers,
+      'Vercel sign-in code',
+      true
+    )
+
     expect(score).to eq(1)
     expect(score).to be < 5
+  end
+end
+
+describe Postal::MessageInspector do
+  it 'runs Rspamd before the internal SpamChecker' do
+    general = double(:general, :spam_check_enabled => true)
+    rspamd = double(:rspamd, :enabled => true)
+    config = double(:config, :general => general, :rspamd => rspamd, :spamd => nil, :clamav => nil)
+    allow(Postal).to receive(:config).and_return(config)
+
+    expect(described_class.inspectors.map(&:class)).to eq([
+      Postal::MessageInspectors::Rspamd,
+      Postal::MessageInspectors::SpamChecker
+    ])
   end
 end
 
@@ -158,11 +210,61 @@ describe Postal::MessageInspectors::SpamChecker do
       :raw_message => raw_message,
       :headers => Mail.new(raw_message).header.fields.each_with_object({}) { |field, memo| (memo[field.name.downcase] ||= []) << field.decoded }
     )
-    inspection = Struct.new(:message, :spam_checks).new(message, [])
+    inspection = Struct.new(:message, :spam_checks).new(
+      message,
+      [Postal::SpamCheck.new('DMARC_POLICY_ALLOW', 0, 'DMARC policy allows sender')]
+    )
 
     described_class.new.inspect_message(inspection)
 
     expect(inspection.spam_checks.map(&:code)).not_to include('V_SPAM')
     expect(inspection.spam_checks.map(&:code)).not_to include('ERROR')
+  end
+
+  it 'classifies the same Vercel-shaped mail as spam without a verified DMARC check' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      Received: from e237-243.smtp-out.us-west-2.amazonses.com (e237-243.smtp-out.us-west-2.amazonses.com [23.251.237.243]) by pxa.mail.venmail.io with SMTP
+      DKIM-Signature: v=1; d=vercel.com; s=transactional; b=xAmazonSignatureValue
+      From: Vercel <system@vercel.com>
+      Reply-To: no-reply@vercel.com
+      To: copata@venmail.io
+      Subject: 012789 is your Vercel log in code
+      MIME-Version: 1.0
+      Content-Type: text/html; charset=UTF-8
+
+      <html><body><p>Log in to Vercel with this code:</p><strong>012789</strong></body></html>
+    MAIL
+    message = double(
+      :message,
+      :mail_from => '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com',
+      :raw_message => raw_message,
+      :headers => Mail.new(raw_message).header.fields.each_with_object({}) { |field, memo| (memo[field.name.downcase] ||= []) << field.decoded }
+    )
+    inspection = Struct.new(:message, :spam_checks).new(message, [])
+
+    described_class.new.inspect_message(inspection)
+
+    expect(inspection.spam_checks.map(&:code)).to include('V_SPAM')
+    expect(inspection.spam_checks.map(&:code)).not_to include('ERROR')
+  end
+
+  it 'fails closed when a scanner error accompanies a DMARC allow result' do
+    message = double(
+      :message,
+      :mail_from => '010101a13918262b-bdcdb6bf-e21d-4656-866f-01cd3b545085-000000@mail.vercel.com',
+      :raw_message => 'Your sign-in code is 012789.',
+      :headers => {
+        'from' => ['Vercel <system@vercel.com>'],
+        'subject' => ['Vercel sign-in code']
+      }
+    )
+    inspection = Struct.new(:message, :spam_checks).new(message, [
+      Postal::SpamCheck.new('DMARC_POLICY_ALLOW', 0, 'DMARC policy allows sender'),
+      Postal::SpamCheck.new('ERROR', 0, 'Rspamd unavailable')
+    ])
+
+    described_class.new.inspect_message(inspection)
+
+    expect(inspection.spam_checks.map(&:code)).to include('V_SPAM')
   end
 end

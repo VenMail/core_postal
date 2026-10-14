@@ -14,12 +14,15 @@ module Postal
           Array(values).map { |value| "#{key}: #{value}" }
         end
         subject = Array(headers_hash['subject']).last.to_s
+        authenticated_from = inspection.spam_checks.any? { |check| check.code == 'DMARC_POLICY_ALLOW' } &&
+          inspection.spam_checks.none? { |check| ['ERROR', 'TIMEOUT'].include?(check.code) }
 
         spam_score = Postal::SpamChecker.classify_email(
           message.mail_from,
           raw_message,
           headers_array,
-          subject
+          subject,
+          authenticated_from
         )
 
         return unless spam_score

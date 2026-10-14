@@ -783,7 +783,7 @@ module Postal
         
         score = 0
         text = (subject.to_s + ' ' + body_lower.to_s).downcase
-        sender_domain = sender_domain.downcase
+        sender_domain = normalize_domain(sender_domain)
         
         # Skip if sender is already trusted
         return 0 if TRUSTED_DOMAINS.any? { |domain| sender_domain.end_with?(domain) }
@@ -792,18 +792,17 @@ module Postal
           next if brand.length < 2
           next unless text.match?(/(?<![a-z0-9])#{Regexp.escape(brand)}(?![a-z0-9])/i)
           
-          # Check if sender domain contains the brand name
-          domain_contains_brand = sender_domain.include?(brand)
-          
           # Allow some common TLD variations for legitimate domains
           legitimate_variants = [
             "#{brand}.com", "#{brand}.org", "#{brand}.net",
             "#{brand}.io", "#{brand}.co", "#{brand}.app",
             "get#{brand}.com", "#{brand}support.com"
           ]
-          is_legitimate_variant = legitimate_variants.any? { |variant| sender_domain.include?(variant) }
+          domain_contains_brand = legitimate_variants.any? do |variant|
+            domain_or_subdomain?(sender_domain, variant)
+          end
           
-          unless domain_contains_brand || is_legitimate_variant
+          unless domain_contains_brand
             log "Brand/domain mismatch detected: '#{brand}' mentioned but sender is #{sender_domain}"
             score += 6
           end
@@ -812,12 +811,12 @@ module Postal
         score
       end
       
-      def check_random_sender_address(sender_email, reference_email = nil)
+      def check_random_sender_address(sender_email, reference_email = nil, authenticated_from = false)
         return 0 unless sender_email
 
         sender_domain = extract_domain_from_email(sender_email)
         reference_domain = extract_domain_from_email(reference_email)
-        return 0 if domains_related?(sender_domain, reference_domain)
+        return 0 if authenticated_from == true && domains_related?(sender_domain, reference_domain)
         
         local_part = sender_email.split('@').first&.downcase
         return 0 unless local_part
@@ -1393,7 +1392,7 @@ module Postal
         score
       end
                    
-      def classify_email(sender_email, parsed, headers = [], subject = '')
+      def classify_email(sender_email, parsed, headers = [], subject = '', authenticated_from = false)
         # Input validation and size limits
         return 20 unless sender_email.is_a?(String)
         return 20 unless subject.is_a?(String) && subject.length <= MAX_SUBJECT_SIZE
@@ -1440,7 +1439,7 @@ module Postal
         confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower, sender_email)
         phishing_tracking_score = check_phishing_tracking_links(links)
         brand_domain_mismatch_score = check_brand_domain_mismatch(subject, body_lower, from_domain)
-        random_sender_score = check_random_sender_address(sender_email, from_email)
+        random_sender_score = check_random_sender_address(sender_email, from_email, authenticated_from)
         greeting_urgency_score = email_greeting_urgency_score(
           body_str,
           subject,
