@@ -347,6 +347,22 @@ describe Postal::MessageInspectors::SpamChecker do
     expect(described_class.new.send(:visible_content, raw_message)).to eq('')
   end
 
+  it 'retains explicit inline content with RFC2231 filename metadata' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      MIME-Version: 1.0
+      Content-Type: multipart/mixed; boundary="boundary"
+
+      --boundary
+      Content-Type: text/plain; charset=UTF-8; name*0*=utf-8''notice; name*1*=.txt
+      Content-Disposition: inline; filename*=utf-8''notice.txt
+
+      Visible RFC2231 inline content
+      --boundary--
+    MAIL
+
+    expect(described_class.new.send(:visible_content, raw_message)).to include('Visible RFC2231 inline content')
+  end
+
   it 'drops multipart fallback content after an actual transfer-decoding failure' do
     raw_message = <<~MAIL.gsub("\n", "\r\n")
       MIME-Version: 1.0
