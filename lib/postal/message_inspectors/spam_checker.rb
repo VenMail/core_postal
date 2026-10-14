@@ -58,7 +58,11 @@ module Postal
       end
 
       def attachment_disposition?(part)
-        part.content_disposition.to_s.match?(/\A\s*attachment(?:\s*;|\s*\z)/i)
+        disposition = part.content_disposition.to_s
+        return true if disposition.match?(/\A\s*attachment(?:\s*;|\s*\z)/i)
+        return false if disposition.match?(/\A\s*inline(?:\s*;|\s*\z)/i)
+
+        filename_metadata?(part.content_type)
       end
 
       def visible_parts_for(part, inside_attachment = false)
@@ -85,8 +89,13 @@ module Postal
         unfolded = headers.gsub(/\r?\n[ \t]+/, ' ')
         unfolded.each_line.any? do |line|
           line.match?(/\Acontent-type:\s*multipart\//i) ||
-            line.match?(/\Acontent-disposition:\s*attachment(?:\s*;|\s*\z)/i)
+            line.match?(/\Acontent-disposition:\s*attachment(?:\s*;|\s*\z)/i) ||
+            (line.match?(/\Acontent-type:/i) && filename_metadata?(line))
         end
+      end
+
+      def filename_metadata?(value)
+        value.to_s.match?(/(?:\A|;)\s*(?:name|filename)\s*=/i)
       end
     end
   end

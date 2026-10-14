@@ -302,6 +302,21 @@ describe Postal::MessageInspectors::SpamChecker do
     expect(content).not_to include('Amazon')
   end
 
+  it 'excludes a filename-only attachment without an explicit inline disposition' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      MIME-Version: 1.0
+      Content-Type: multipart/mixed; boundary="boundary"
+
+      --boundary
+      Content-Type: text/plain; charset=UTF-8; name="receipt.txt"
+
+      Amazon filename-only attachment content
+      --boundary--
+    MAIL
+
+    expect(described_class.new.send(:visible_content, raw_message)).to eq('')
+  end
+
   it 'drops multipart fallback content after an actual transfer-decoding failure' do
     raw_message = <<~MAIL.gsub("\n", "\r\n")
       MIME-Version: 1.0
@@ -333,6 +348,22 @@ describe Postal::MessageInspectors::SpamChecker do
 
     expect(content.length).to eq(Postal::SpamChecker::MAX_BODY_SIZE)
     expect(content).not_to include('Amazon')
+  end
+
+  it 'drops fallback content with top-level filename attachment metadata' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      MIME-Version: 1.0
+      Content-Type: text/plain; charset=UTF-8; name="receipt.txt"
+      Content-Transfer-Encoding: x-invalid-encoding
+
+      Amazon filename-only attachment content
+    MAIL
+
+    expect { Mail.read_from_string(raw_message).decoded }.to raise_error(Mail::UnknownEncodingType)
+    expect(described_class.new.send(:visible_content, raw_message)).to eq('')
+
+    allow(Mail).to receive(:read_from_string).and_raise(Mail::Field::ParseError, 'invalid MIME')
+    expect(described_class.new.send(:visible_content, raw_message)).to eq('')
   end
 
   it 'drops a decode-failure fallback with a folded top-level multipart Content-Type' do
