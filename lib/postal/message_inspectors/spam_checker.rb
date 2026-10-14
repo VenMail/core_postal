@@ -45,20 +45,35 @@ module Postal
       def visible_content(raw_message)
         message = Mail.read_from_string(raw_message)
         part = if message.multipart?
-          visible_parts = message.all_parts.reject(&:attachment?)
+          visible_parts = message.all_parts.reject { |candidate| attachment_disposition?(candidate) }
           visible_parts.find { |candidate| candidate.mime_type == 'text/html' } ||
             visible_parts.find { |candidate| candidate.mime_type == 'text/plain' }
-        elsif !message.attachment?
+        elsif !attachment_disposition?(message)
           message
         end
 
         scrub_utf8(part ? part.decoded : '')
       rescue StandardError
-        scrub_utf8(raw_message.to_s.split(/\r?\n\r?\n/, 2).last)
+        safe_fallback_content(raw_message)
       end
 
       def scrub_utf8(content)
         content.to_s.force_encoding(Encoding::UTF_8).scrub
+      end
+
+      def attachment_disposition?(part)
+        part.content_disposition.to_s.match?(/\A\s*attachment(?:\s*;|\s*\z)/i)
+      end
+
+      def safe_fallback_content(raw_message)
+        raw = raw_message.to_s
+        headers, body = raw.split(/\r?\n\r?\n/, 2)
+        return '' unless body
+        return '' if headers.each_line.any? { |line| line.match?(/\Acontent-type:\s*multipart\//i) }
+        return '' if headers.each_line.any? { |line| line.match?(/\Acontent-disposition:\s*attachment(?:\s*;|\s*\z)/i) }
+        return '' if raw.each_line.any? { |line| line.match?(/\Acontent-disposition:\s*attachment(?:\s*;|\s*\z)/i) }
+
+        scrub_utf8(body.byteslice(0, Postal::SpamChecker::MAX_BODY_SIZE))
       end
     end
   end

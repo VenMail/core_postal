@@ -278,6 +278,63 @@ describe Postal::MessageInspectors::SpamChecker do
     expect(content).not_to include('Amazon')
   end
 
+  it 'retains an inline named text part while excluding a filename-free attachment' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      MIME-Version: 1.0
+      Content-Type: multipart/mixed; boundary="boundary"
+
+      --boundary
+      Content-Type: text/plain; charset=UTF-8; name="notice.txt"
+      Content-Disposition: inline; filename="notice.txt"
+
+      Visible inline content
+      --boundary
+      Content-Type: text/plain; charset=UTF-8
+      Content-Disposition: attachment
+
+      Amazon attachment content
+      --boundary--
+    MAIL
+
+    content = described_class.new.send(:visible_content, raw_message)
+
+    expect(content).to include('Visible inline content')
+    expect(content).not_to include('Amazon')
+  end
+
+  it 'drops multipart fallback content after an actual transfer-decoding failure' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      MIME-Version: 1.0
+      Content-Type: multipart/mixed; boundary="boundary"
+
+      --boundary
+      Content-Type: text/html; charset=UTF-8
+      Content-Transfer-Encoding: x-invalid-encoding
+
+      Visible undecodable content
+      --boundary
+      Content-Type: text/plain; charset=UTF-8
+      Content-Disposition: attachment
+
+      Amazon attachment content
+      --boundary--
+    MAIL
+
+    decoded_part = Mail.read_from_string(raw_message).all_parts.find { |part| part.mime_type == 'text/html' }
+    expect { decoded_part.decoded }.to raise_error(Mail::UnknownEncodingType)
+    expect(described_class.new.send(:visible_content, raw_message)).to eq('')
+  end
+
+  it 'bounds the safe fallback body when MIME parsing fails' do
+    raw_message = "X-Provider: Amazon\r\n\r\n#{'a' * (Postal::SpamChecker::MAX_BODY_SIZE + 1)}"
+    allow(Mail).to receive(:read_from_string).and_raise(Mail::Field::ParseError, 'invalid MIME')
+
+    content = described_class.new.send(:visible_content, raw_message)
+
+    expect(content.length).to eq(Postal::SpamChecker::MAX_BODY_SIZE)
+    expect(content).not_to include('Amazon')
+  end
+
   it 'passes high-confidence internal scores through without halving them' do
     message = double(
       :message,

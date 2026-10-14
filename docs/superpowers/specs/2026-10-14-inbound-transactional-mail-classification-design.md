@@ -33,7 +33,7 @@ The selected approach separates decoded content from transport metadata, uses re
 
 The internal classifier will receive decoded visible MIME content instead of the complete raw message. Headers remain available through the existing separate header array. Link, phrase, and gibberish checks therefore inspect user-visible content and cannot match DKIM signatures, `Received` headers, or provider message identifiers.
 
-When MIME parsing fails, the inspector will fall back to the raw body section and preserve the existing fail-safe error handling. Attachments will not be concatenated into the heuristic text.
+When MIME parsing fails, the inspector will use only a size-bounded top-level body fallback. Multipart and attachment-bearing messages will provide no fallback content, preserving the existing fail-safe error handling.
 
 ### Domain relationships
 
