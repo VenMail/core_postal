@@ -335,6 +335,63 @@ describe Postal::MessageInspectors::SpamChecker do
     expect(content).not_to include('Amazon')
   end
 
+  it 'drops a decode-failure fallback with a folded top-level multipart Content-Type' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      MIME-Version: 1.0
+      Content-Type:
+       multipart/mixed; boundary="boundary"
+
+      --boundary
+      Content-Type: text/html; charset=UTF-8
+      Content-Transfer-Encoding: x-invalid-encoding
+
+      Visible undecodable content
+      --boundary--
+    MAIL
+
+    decoded_part = Mail.read_from_string(raw_message).all_parts.find { |part| part.mime_type == 'text/html' }
+    expect { decoded_part.decoded }.to raise_error(Mail::UnknownEncodingType)
+    expect(described_class.new.send(:visible_content, raw_message)).to eq('')
+  end
+
+  it 'drops a decode-failure fallback with a folded top-level attachment disposition' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      MIME-Version: 1.0
+      Content-Type: text/plain; charset=UTF-8
+      Content-Disposition:
+       attachment
+      Content-Transfer-Encoding: x-invalid-encoding
+
+      Amazon attachment content
+    MAIL
+
+    expect { Mail.read_from_string(raw_message).decoded }.to raise_error(Mail::UnknownEncodingType)
+    expect(described_class.new.send(:visible_content, raw_message)).to eq('')
+
+    allow(Mail).to receive(:read_from_string).and_raise(Mail::Field::ParseError, 'invalid MIME')
+    expect(described_class.new.send(:visible_content, raw_message)).to eq('')
+  end
+
+  it 'excludes visible descendants of an attachment-bearing multipart wrapper' do
+    raw_message = <<~MAIL.gsub("\n", "\r\n")
+      MIME-Version: 1.0
+      Content-Type: multipart/mixed; boundary="outer"
+
+      --outer
+      Content-Type: multipart/alternative; boundary="inner"
+      Content-Disposition: attachment
+
+      --inner
+      Content-Type: text/html; charset=UTF-8
+
+      <p>Amazon nested attachment content</p>
+      --inner--
+      --outer--
+    MAIL
+
+    expect(described_class.new.send(:visible_content, raw_message)).to eq('')
+  end
+
   it 'passes high-confidence internal scores through without halving them' do
     message = double(
       :message,

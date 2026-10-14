@@ -44,13 +44,9 @@ module Postal
 
       def visible_content(raw_message)
         message = Mail.read_from_string(raw_message)
-        part = if message.multipart?
-          visible_parts = message.all_parts.reject { |candidate| attachment_disposition?(candidate) }
-          visible_parts.find { |candidate| candidate.mime_type == 'text/html' } ||
-            visible_parts.find { |candidate| candidate.mime_type == 'text/plain' }
-        elsif !attachment_disposition?(message)
-          message
-        end
+        visible_parts = visible_parts_for(message)
+        part = visible_parts.find { |candidate| candidate.mime_type == 'text/html' } ||
+          visible_parts.find { |candidate| candidate.mime_type == 'text/plain' }
 
         scrub_utf8(part ? part.decoded : '')
       rescue StandardError
@@ -65,15 +61,32 @@ module Postal
         part.content_disposition.to_s.match?(/\A\s*attachment(?:\s*;|\s*\z)/i)
       end
 
+      def visible_parts_for(part, inside_attachment = false)
+        attachment = inside_attachment || attachment_disposition?(part)
+        return [] if attachment
+
+        children = part.parts
+        return [part] if children.empty?
+
+        children.flat_map { |child| visible_parts_for(child, attachment) }
+      end
+
       def safe_fallback_content(raw_message)
         raw = raw_message.to_s
         headers, body = raw.split(/\r?\n\r?\n/, 2)
         return '' unless body
-        return '' if headers.each_line.any? { |line| line.match?(/\Acontent-type:\s*multipart\//i) }
-        return '' if headers.each_line.any? { |line| line.match?(/\Acontent-disposition:\s*attachment(?:\s*;|\s*\z)/i) }
-        return '' if raw.each_line.any? { |line| line.match?(/\Acontent-disposition:\s*attachment(?:\s*;|\s*\z)/i) }
+        return '' if unsafe_fallback_headers?(headers)
+        return '' if unsafe_fallback_headers?(raw)
 
         scrub_utf8(body.byteslice(0, Postal::SpamChecker::MAX_BODY_SIZE))
+      end
+
+      def unsafe_fallback_headers?(headers)
+        unfolded = headers.gsub(/\r?\n[ \t]+/, ' ')
+        unfolded.each_line.any? do |line|
+          line.match?(/\Acontent-type:\s*multipart\//i) ||
+            line.match?(/\Acontent-disposition:\s*attachment(?:\s*;|\s*\z)/i)
+        end
       end
     end
   end
