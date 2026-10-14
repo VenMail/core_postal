@@ -96,13 +96,36 @@ describe Postal::SpamChecker do
   end
 
   it 'allows Amazon ccTLD subdomains through its canonical ownership map' do
-    score = described_class.check_brand_domain_mismatch(
-      'Amazon account notice',
-      'Review your Amazon account',
-      'mail.amazon.co.uk'
-    )
+    amazon_roots = %w[
+      amazon.com amazon.ca amazon.com.mx amazon.com.br amazon.co.uk amazon.de
+      amazon.fr amazon.it amazon.es amazon.nl amazon.pl amazon.se amazon.com.be
+      amazon.co.jp amazon.com.au amazon.in amazon.sg amazon.ae amazon.sa amazon.eg
+      amazon.com.tr
+    ]
 
-    expect(score).to eq(0)
+    amazon_roots.each do |root|
+      [root, "mail.#{root}"].each do |sender_domain|
+        score = described_class.check_brand_domain_mismatch(
+          'Amazon account notice',
+          'Review your Amazon account',
+          sender_domain
+        )
+
+        expect(score).to eq(0)
+      end
+    end
+  end
+
+  it 'scores unlisted Amazon-shaped domains as mismatches' do
+    ['amazon.xyz', 'mail.amazon.xyz'].each do |sender_domain|
+      score = described_class.check_brand_domain_mismatch(
+        'Amazon account notice',
+        'Review your Amazon account',
+        sender_domain
+      )
+
+      expect(score).to be >= 6
+    end
   end
 
   it 'maps every impersonated brand to immutable canonical domains' do

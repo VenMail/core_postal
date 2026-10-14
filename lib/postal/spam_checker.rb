@@ -655,6 +655,8 @@ module Postal
       'indeed', 'upwork', 'fiverr', 'freelancer'
     ].freeze
 
+    # Curated canonical ownership map for brand/domain alignment. New sites require
+    # explicit additions; this intentionally does not infer ownership from strings.
     BRAND_CANONICAL_DOMAINS = {
       'meta' => ['meta.com'].freeze,
       'facebook' => ['facebook.com', 'fb.com'].freeze,
@@ -678,7 +680,8 @@ module Postal
       'amazon' => [
         'amazon.com', 'amazon.co.uk', 'amazon.ca', 'amazon.com.au', 'amazon.co.jp',
         'amazon.de', 'amazon.es', 'amazon.fr', 'amazon.in', 'amazon.it', 'amazon.nl',
-        'amazon.com.br', 'amazon.com.mx', 'amazon.se', 'amazon.pl'
+        'amazon.com.br', 'amazon.com.mx', 'amazon.se', 'amazon.pl', 'amazon.com.be',
+        'amazon.sg', 'amazon.ae', 'amazon.sa', 'amazon.eg', 'amazon.com.tr'
       ].freeze,
       'aws' => ['amazonaws.com', 'aws.amazon.com'].freeze,
       'prime' => ['amazon.com', 'primevideo.com'].freeze,
