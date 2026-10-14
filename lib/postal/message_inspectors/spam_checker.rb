@@ -62,7 +62,7 @@ module Postal
         return true if disposition.match?(/\A\s*attachment(?:\s*;|\s*\z)/i)
         return false if disposition.match?(/\A\s*inline(?:\s*;|\s*\z)/i)
 
-        filename_metadata?(part.content_type)
+        part.attachment? || filename_metadata?(part.content_type)
       end
 
       def visible_parts_for(part, inside_attachment = false)
@@ -95,7 +95,7 @@ module Postal
       end
 
       def filename_metadata?(value)
-        value.to_s.match?(/(?:\A|;)\s*(?:name|filename)\s*=/i)
+        value.to_s.match?(/(?:\A|;)\s*(?:name|filename)(?:\*(?:\d+\*?)?)?\s*=/i)
       end
     end
   end
