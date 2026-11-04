@@ -9,6 +9,8 @@ module Postal
     MAX_BODY_SIZE = 500_000     # 500KB
     HIGH_CONFIDENCE_SPAM_SCORE = 18.0
     MAX_SPAM_SCORE = 50.0
+    LOW_VOLUME_EMPLOYMENT_OFFER_LIMIT = 10
+    EMPLOYMENT_OFFER_PATTERN = /\b(?:offer\s+of\s+employment|employment\s+offer|job\s+offer|offer\s+letter)\b/i
     
     TRUSTED_DOMAINS = [
     'googlemail.com',
@@ -832,8 +834,13 @@ module Postal
         value.to_s[EMAIL_REGEX]
       end
       
-      def check_brand_domain_mismatch(subject, body_lower, sender_domain)
+      def check_brand_domain_mismatch(subject, body_lower, sender_domain, allow_identity_aligned_employment_offer = false)
         return 0 unless sender_domain && (subject || body_lower)
+
+        if allow_identity_aligned_employment_offer
+          log "Skipping brand/domain mismatch penalty for a low-volume, identity-aligned employment offer from #{sender_domain}"
+          return 0
+        end
         
         score = 0
         text = (subject.to_s + ' ' + body_lower.to_s).downcase
@@ -857,6 +864,22 @@ module Postal
         end
         
         score
+      end
+
+      def identity_aligned_employment_offer?(sender_email, subject, body, from_email = nil)
+        sender_domain = normalize_domain(extract_domain_from_email(sender_email))
+        return false if sender_domain.empty?
+
+        from_domain = normalize_domain(extract_domain_from_email(from_email))
+        return false if !from_domain.empty? && !domains_related?(sender_domain, from_domain)
+
+        organization_token = sender_domain.split('.').first.to_s
+        return false if organization_token.length < 4 || organization_token.match?(/\A\d+\z/)
+
+        message_text = "#{subject} #{body}".downcase.gsub(/[^a-z0-9]/, '')
+        return false unless message_text.include?(organization_token)
+
+        "#{subject} #{body}".match?(EMPLOYMENT_OFFER_PATTERN)
       end
       
       def check_random_sender_address(sender_email, reference_email = nil, authenticated_from = false)
@@ -1440,7 +1463,7 @@ module Postal
         score
       end
                    
-      def classify_email(sender_email, parsed, headers = [], subject = '', authenticated_from = false)
+      def classify_email(sender_email, parsed, headers = [], subject = '', authenticated_from = false, options = {})
         # Input validation and size limits
         return 20 unless sender_email.is_a?(String)
         return 20 unless subject.is_a?(String) && subject.length <= MAX_SUBJECT_SIZE
@@ -1471,6 +1494,11 @@ module Postal
         from_header = headers.find { |h| h.match?(/^From:/i) }
         from_email = extract_email_address(from_header)
         from_domain = extract_domain_from_email(sender_email)
+        outbound_volume_last_hour = options[:outbound_volume_last_hour]
+        allow_identity_aligned_employment_offer =
+          !outbound_volume_last_hour.nil? &&
+          outbound_volume_last_hour.to_i <= LOW_VOLUME_EMPLOYMENT_OFFER_LIMIT &&
+          identity_aligned_employment_offer?(sender_email, subject, body_str, from_email)
         
         # Track header fingerprint for rate limiting
         headers_fingerprint = headers.sort.join('|')
@@ -1486,7 +1514,12 @@ module Postal
         restricted_domain_score = check_restricted_domain_priority(headers, from_domain)
         confirmation_phrases_score = check_suspicious_confirmation_phrases(subject, body_lower, sender_email)
         phishing_tracking_score = check_phishing_tracking_links(links)
-        brand_domain_mismatch_score = check_brand_domain_mismatch(subject, body_lower, from_domain)
+        brand_domain_mismatch_score = check_brand_domain_mismatch(
+          subject,
+          body_lower,
+          from_domain,
+          allow_identity_aligned_employment_offer
+        )
         random_sender_score = check_random_sender_address(sender_email, from_email, authenticated_from)
         greeting_urgency_score = email_greeting_urgency_score(
           body_str,

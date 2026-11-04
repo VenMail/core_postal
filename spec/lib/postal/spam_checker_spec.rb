@@ -196,6 +196,89 @@ describe Postal::SpamChecker do
     expect(score).to eq(1)
     expect(score).to be < 5
   end
+
+  it 'does not penalize incidental brands in a low-volume domain-aligned employment offer' do
+    headers = ['From: HR <hr@techworkstations.com>']
+    body = 'Techworkstations Limited is pleased to make this offer of employment. We use Gmail and AWS for onboarding and your employee account.'
+
+    score = described_class.classify_email(
+      'hr@techworkstations.com',
+      body,
+      headers,
+      'OFFER OF EMPLOYMENT - TECHWORKSTATIONS',
+      false,
+      :outbound_volume_last_hour => 10
+    )
+
+    expect(score).to eq(1)
+  end
+
+  it 'retains incidental-brand penalties when an employment offer exceeds the hourly volume limit' do
+    headers = ['From: HR <hr@techworkstations.com>']
+    body = 'Techworkstations Limited is pleased to make this offer of employment. We use Gmail and AWS for onboarding and your employee account.'
+
+    score = described_class.classify_email(
+      'hr@techworkstations.com',
+      body,
+      headers,
+      'OFFER OF EMPLOYMENT - TECHWORKSTATIONS',
+      false,
+      :outbound_volume_last_hour => 11
+    )
+
+    expect(score).to eq(13)
+  end
+
+  it 'retains independent phishing penalties for a low-volume domain-aligned employment offer' do
+    headers = [
+      'From: HR <hr@techworkstations.com>',
+      'Reply-To: collect@attacker.example'
+    ]
+    body = 'Techworkstations Limited is pleased to make this offer of employment. We use Gmail and AWS for onboarding and your employee account.'
+
+    score = described_class.classify_email(
+      'hr@techworkstations.com',
+      body,
+      headers,
+      'OFFER OF EMPLOYMENT - TECHWORKSTATIONS',
+      false,
+      :outbound_volume_last_hour => 10
+    )
+
+    expect(score).to be >= 9
+  end
+
+  it 'retains incidental-brand penalties when the sender domain is absent from the offer' do
+    headers = ['From: HR <hr@techworkstations.com>']
+    body = 'We are pleased to make this offer of employment. We use Gmail and AWS for onboarding and your employee account.'
+
+    score = described_class.classify_email(
+      'hr@techworkstations.com',
+      body,
+      headers,
+      'OFFER OF EMPLOYMENT',
+      false,
+      :outbound_volume_last_hour => 10
+    )
+
+    expect(score).to eq(13)
+  end
+
+  it 'retains incidental-brand penalties when the From address is not aligned with the envelope sender' do
+    headers = ['From: HR <hr@attacker.example>']
+    body = 'Techworkstations Limited is pleased to make this offer of employment. We use Gmail and AWS for onboarding and your employee account.'
+
+    score = described_class.classify_email(
+      'hr@techworkstations.com',
+      body,
+      headers,
+      'OFFER OF EMPLOYMENT - TECHWORKSTATIONS',
+      false,
+      :outbound_volume_last_hour => 10
+    )
+
+    expect(score).to eq(13)
+  end
 end
 
 describe Postal::MessageInspector do
@@ -500,6 +583,41 @@ describe Postal::MessageInspectors::SpamChecker do
 
     expect(inspection.spam_checks.first.code).to eq('V_SPAM')
     expect(inspection.spam_checks.first.score).to eq(20.0)
+  end
+
+  it 'passes the per-credential outbound volume to the employment-offer classifier' do
+    message_db = double(:message_db)
+    server = double(:server, :message_db => message_db)
+    message = double(
+      :message,
+      :mail_from => 'hr@techworkstations.com',
+      :raw_message => "Subject: OFFER OF EMPLOYMENT - TECHWORKSTATIONS\r\n\r\nTechworkstations employment offer.",
+      :headers => {
+        'from' => ['HR <hr@techworkstations.com>'],
+        'subject' => ['OFFER OF EMPLOYMENT - TECHWORKSTATIONS']
+      },
+      :credential_id => 13,
+      :server => server
+    )
+    inspection = Struct.new(:message, :spam_checks, :scope).new(message, [], :outgoing)
+
+    expect(message_db).to receive(:select).with(
+      :messages,
+      hash_including(
+        :where => hash_including(:scope => 'outgoing', :credential_id => 13),
+        :count => true
+      )
+    ).and_return(7)
+    expect(Postal::SpamChecker).to receive(:classify_email).with(
+      'hr@techworkstations.com',
+      'Techworkstations employment offer.',
+      ['from: HR <hr@techworkstations.com>', 'subject: OFFER OF EMPLOYMENT - TECHWORKSTATIONS'],
+      'OFFER OF EMPLOYMENT - TECHWORKSTATIONS',
+      false,
+      :outbound_volume_last_hour => 7
+    ).and_return(1)
+
+    described_class.new.inspect_message(inspection)
   end
 
   it 'does not classify aligned Vercel mail sent through Amazon SES as spam' do

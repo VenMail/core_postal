@@ -18,13 +18,15 @@ module Postal
         authenticated_from = inspection.respond_to?(:rspamd_dmarc_policy_allow?) &&
           inspection.rspamd_dmarc_policy_allow? &&
           inspection.spam_checks.none? { |check| ['ERROR', 'TIMEOUT'].include?(check.code) }
+        outbound_volume_last_hour = outbound_volume_last_hour(message, inspection.scope)
 
         spam_score = Postal::SpamChecker.classify_email(
           message.mail_from,
           content,
           headers_array,
           subject,
-          authenticated_from
+          authenticated_from,
+          :outbound_volume_last_hour => outbound_volume_last_hour
         )
 
         return unless spam_score
@@ -41,6 +43,26 @@ module Postal
       end
 
       private
+
+      # This is deliberately an upper bound on offer volume: all outbound mail
+      # from the credential counts, so unrelated traffic cannot make the
+      # employment-offer exception less conservative.
+      def outbound_volume_last_hour(message, scope)
+        return nil unless scope == :outgoing && message.credential_id
+
+        message.server.message_db.select(
+          :messages,
+          :where => {
+            :scope => 'outgoing',
+            :credential_id => message.credential_id,
+            :timestamp => { :greater_than => 1.hour.ago.to_f }
+          },
+          :count => true
+        ).to_i
+      rescue => e
+        logger.warn "Unable to determine outbound volume for employment-offer classification: #{e.class} (#{e.message})"
+        nil
+      end
 
       def visible_content(raw_message)
         message = Mail.read_from_string(raw_message)
