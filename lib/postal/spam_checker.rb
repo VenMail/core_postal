@@ -851,6 +851,7 @@ module Postal
         
         IMPERSONATED_BRANDS.each do |brand|
           next if brand.length < 2
+          next if brand == 'drive' && !text.match?(/\bgoogle\s+drive\b/i)
           next unless text.match?(/(?<![a-z0-9])#{Regexp.escape(brand)}(?![a-z0-9])/i)
           
           domain_contains_brand = BRAND_CANONICAL_DOMAINS.fetch(brand).any? do |variant|
@@ -966,7 +967,13 @@ module Postal
         
         # Count job scam phrases
         job_phrase_count = JOB_SCAM_PHRASES.sum do |phrase|
-          text.scan(/#{Regexp.escape(phrase)}/i).size
+          # A referral credit is not an offer of paid work by itself.
+          phrase_text = if phrase == 'earn $'
+                          text.gsub(/\bearn\s+\$\s*\d+(?:\.\d+)?\s+(?:in\s+)?credit\b/i, '')
+                        else
+                          text
+                        end
+          phrase_text.scan(/#{Regexp.escape(phrase)}/i).size
         end
         
         return 0 if job_phrase_count == 0
@@ -1779,7 +1786,9 @@ module Postal
       private
 
       def strip_html(content)
-        Nokogiri::HTML(content).text
+        document = Nokogiri::HTML(content)
+        document.css('style, script, head, template').remove
+        document.text
       end
 
       def count_keywords(keywords, text, sender_email = nil)

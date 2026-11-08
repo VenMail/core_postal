@@ -1,6 +1,24 @@
 require 'rails_helper'
 
 describe Postal::SpamChecker do
+  it 'excludes CSS and scripts from visible message text' do
+    html = '<style>#outlook a { color: red }</style><script>Amazon</script><p>Payment received</p>'
+    expect(described_class.send(:strip_html, html)).not_to match(/outlook|amazon/i)
+  end
+
+  it 'does not treat a referral credit as a job scam' do
+    expect(described_class.check_job_scam_patterns('Payment receipt', 'Earn $25 credit when you refer a friend to DigitalOcean', 'support@digitalocean.com')).to eq(0)
+  end
+
+  it 'retains job scam scoring when earnings are connected to work' do
+    expect(described_class.check_job_scam_patterns('Remote position', 'Work from home and earn $500 weekly', 'hr@example.com')).to be > 0
+  end
+
+  it 'does not treat a street address as Google Drive impersonation' do
+    expect(described_class.check_brand_domain_mismatch('Receipt', '105 Edgeview Drive, Suite 425', 'digitalocean.com')).to eq(0)
+    expect(described_class.check_brand_domain_mismatch('Google Drive notice', 'Open your Google Drive document', 'attacker.example')).to be >= 6
+  end
+
   let(:headers) do
     [
       'Received: from [204.10.162.167] (::ffff:204.10.162.167 [::ffff:204.10.162.167]) by pxa.mail.venmail.io with SMTP; Tue, 19 May 2026 11:53:36 +0000',
